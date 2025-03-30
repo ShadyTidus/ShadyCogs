@@ -71,8 +71,8 @@ class Wiki(commands.Cog):
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
         }
-        # Map game roles to their designated channel names.
-        self.role_to_channel = {
+        # New decoupled mapping: role name to designated channel name (without the "#")
+        self.role_name_to_channel_name = {
             "Escape from Tarkov": "escape-from-tarkov",
             "Hell Let Loose": "hell-let-loose",
             "Rainbow Six": "rainbow-six",
@@ -135,6 +135,7 @@ class Wiki(commands.Cog):
 
         role_mention = None
         mention_text = ""
+        extra_text = ""
 
         # Attempt to get role info from the referenced message.
         if ctx.message.reference:
@@ -162,6 +163,18 @@ class Wiki(commands.Cog):
             role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
             if role_obj:
                 mention_text = f"{role_obj.mention}\n"
+                # Check the correct channel for the role
+                expected_channel = self.role_name_to_channel_name.get(role_obj.name)
+                if expected_channel and ctx.channel.name != expected_channel:
+                    channel_obj = discord.utils.get(ctx.guild.text_channels, name=expected_channel)
+                    if channel_obj:
+                        extra_text = (f"\nYou would also have a better chance finding players in "
+                                      f"{channel_obj.mention}, and if this channel is showing as no access, "
+                                      "grab the game-specific role from Channels & Roles!")
+                    else:
+                        extra_text = (f"\nYou would also have a better chance finding players in "
+                                      f"#{expected_channel}, and if this channel is showing as no access, "
+                                      "grab the game-specific role from Channels & Roles!")
             else:
                 mention_text = f"@{role_mention}\n"
 
@@ -169,19 +182,7 @@ class Wiki(commands.Cog):
         output = (
             f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
             "📌 [LFG Guide](https://wiki.mulveycreations.com/discord/lfg)"
-        )
-
-        # If a game role was detected and it has a designated channel mapping, check if the current channel matches.
-        if role_mention and role_mention in self.role_to_channel:
-            expected_channel_name = self.role_to_channel[role_mention]
-            if ctx.channel.name != expected_channel_name:
-                # Try to find the target channel object by name.
-                target_channel = discord.utils.get(ctx.guild.text_channels, name=expected_channel_name)
-                if target_channel:
-                    extra_text = f"\nYou would also have a better chance finding players in {target_channel.mention}, and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
-                else:
-                    extra_text = f"\nYou would also have a better chance finding players in #{expected_channel_name}, and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
-                output += extra_text
+        ) + extra_text
 
         await self.send_reply(ctx, output)
 
@@ -209,7 +210,6 @@ class Wiki(commands.Cog):
     async def rule(self, ctx, rule_number: int):
         if not await self.delete_and_check(ctx):
             return
-
         rules = {
             1: "**1️⃣ Be Respectful**\nTreat everyone respectfully. Disrespectful or toxic behavior will result in action.",
             2: "**2️⃣ 18+ Only**\nPA is for adults only. You must be 18 or older to participate.",
@@ -222,7 +222,6 @@ class Wiki(commands.Cog):
             9: "**9️⃣ No Unapproved Invites or Links**\nGame server links require vetting and Discord invites are absolutely not allowed.\n📌 [Host/Advertise](https://wiki.mulveycreations.com/servers/hosting)\n📌 [Apply for Vetting](https://discord.com/channels/629113661113368594/693601096467218523/1349427482637635677)",
             10: "**🔟 Build-A-VC Channel Names**\nChannel names must be clean and appropriate for Discord Discovery."
         }
-
         rule_text = rules.get(rule_number)
         if rule_text:
             embed = discord.Embed(

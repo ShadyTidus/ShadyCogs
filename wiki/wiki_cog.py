@@ -22,11 +22,12 @@ class FafoView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         try:
             duration = timedelta(minutes=5)
-            # Ensure the user is a Member object
+            until_time = discord.utils.utcnow() + duration
             member = interaction.guild.get_member(interaction.user.id)
             if member is None:
-                member = interaction.user  # fallback; should normally not happen in a guild
-            await member.timeout(duration, reason="FAFO button clicked.")
+                await interaction.followup.send("Member not found.", ephemeral=True)
+                return
+            await member.timeout(until=until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)

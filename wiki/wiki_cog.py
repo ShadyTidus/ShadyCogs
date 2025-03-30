@@ -7,6 +7,15 @@ from redbot.core import commands
 class FafoView(discord.ui.View):
     def __init__(self, timeout: int = 180):
         super().__init__(timeout=timeout)
+        self.message = None  # Will store the message this view is attached to
+
+    async def on_timeout(self):
+        # When the view times out, attempt to delete the message that contains it.
+        if self.message:
+            try:
+                await self.message.delete()
+            except Exception as e:
+                print(f"Failed to delete message on timeout: {e}")
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -77,15 +86,17 @@ class Wiki(commands.Cog):
         return True
 
     async def send_reply(self, ctx, *args, **kwargs):
-        """Helper to reply to the original message if the command was run as a reply."""
+        """Helper to reply to the original message if the command was run as a reply.
+           Returns the sent message."""
         if ctx.message.reference:
             try:
                 original_message = await ctx.channel.fetch_message(ctx.message.reference.message_id)
-                await original_message.reply(*args, **kwargs)
-                return
+                msg = await original_message.reply(*args, **kwargs)
+                return msg
             except Exception:
                 pass
-        await ctx.send(*args, **kwargs)
+        msg = await ctx.send(*args, **kwargs)
+        return msg
 
     @commands.command()
     async def lfg(self, ctx):
@@ -190,7 +201,6 @@ class Wiki(commands.Cog):
 
     @commands.command()
     async def fafo(self, ctx):
-        # Only allow users with allowed roles to run the command.
         if not await self.delete_and_check(ctx):
             return
         warning_text = (
@@ -198,7 +208,8 @@ class Wiki(commands.Cog):
             "Click Below To FAFO"
         )
         view = FafoView()
-        await self.send_reply(ctx, warning_text, view=view)
+        msg = await self.send_reply(ctx, warning_text, view=view)
+        view.message = msg
 
 # Required for Redbot compatibility
 async def setup(bot):

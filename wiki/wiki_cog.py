@@ -9,13 +9,16 @@ class FafoView(discord.ui.View):
         super().__init__(timeout=timeout)
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
-    async def click_here(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         try:
+            # Calculate the timeout duration (5 minutes from now)
             until = datetime.utcnow() + timedelta(minutes=5)
             await interaction.user.edit(communication_disabled_until=until)
-            await interaction.response.send_message("You have been timed out for 5 minutes.", ephemeral=True)
-        except Exception:
-            await interaction.response.send_message("Failed to timeout you.", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("You have been timed out for 5 minutes.", ephemeral=True)
+        except Exception as e:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"Failed to timeout you: {e}", ephemeral=True)
 
 class Wiki(commands.Cog):
     def __init__(self, bot):

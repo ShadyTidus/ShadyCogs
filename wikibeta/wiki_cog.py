@@ -75,7 +75,7 @@ class Wiki(commands.Cog):
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
         }
-        # Mapping from role names to designated channel IDs (no '#' prefix; use actual channel IDs)
+        # Mapping from role names to designated channel IDs (using actual channel IDs)
         self.role_name_to_channel_id = {
             "Escape from Tarkov": 1325558852120350863,
             "Hell Let Loose": 1325565264246603859,
@@ -106,6 +106,8 @@ class Wiki(commands.Cog):
             "Fortnite": 1316416079333167149,
             "Forza": 1328799912892170260
         }
+        # For the Channels & Roles link, we use the special clickable string <id:customize>
+        self.channels_and_roles_link = "<id:customize>"
 
     def is_authorized(self, ctx):
         return any(role.name in self.allowed_roles for role in ctx.author.roles)
@@ -162,30 +164,59 @@ class Wiki(commands.Cog):
             except Exception:
                 pass
 
-        # If a pingable game role was found, prepare the mention.
-        if role_mention:
-            role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
-            if role_obj:
-                mention_text = f"{role_obj.mention}\n"
-                # Use the new mapping to get the designated channel ID.
-                expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
-                if expected_channel_id:
+        if role_mention is None:
+            await self.send_reply(ctx, "No game alias detected in the referenced message.")
+            return
+
+        # Get the role object.
+        role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
+        if role_obj:
+            # In the correct channel, we want to ping both the role and the user.
+            mention_text = f"{role_obj.mention} {ctx.author.mention}\n"
+            expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
+            if expected_channel_id:
+                if ctx.channel.id == expected_channel_id:
+                    # Correct channel: send message in current channel.
+                    output = (
+                        f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                        "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+                    )
+                    await self.send_reply(ctx, output)
+                else:
+                    # Wrong channel: inform the user in the current channel.
+                    extra_text = (
+                        f"Detected game role: **{role_obj.name}**. This is not the correct channel. "
+                        f"Please grab the game-specific role from {self.channels_and_roles_link}.\n"
+                    )
+                    await self.send_reply(ctx, extra_text)
+                    # If the user doesn't have the role, assign it.
+                    if role_obj not in ctx.author.roles:
+                        try:
+                            await ctx.author.add_roles(role_obj, reason="User redirected by -lfg command")
+                        except Exception as e:
+                            print(f"Failed to add role to user: {e}")
+                    # Now send the LFG message in the correct channel.
                     target_channel = ctx.guild.get_channel(expected_channel_id)
-                    if target_channel and ctx.channel.id != target_channel.id:
-                        extra_text = (
-                            f"\nYou would also have a better chance finding players in {target_channel.mention}, "
-                            "and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
+                    if target_channel:
+                        output = (
+                            f"{role_obj.mention} {ctx.author.mention}\n"
+                            "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                            "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
                         )
+                        try:
+                            await target_channel.send(output)
+                        except Exception as e:
+                            print(f"Failed to send message in target channel: {e}")
+                    else:
+                        await self.send_reply(ctx, "Error: Designated channel not found.")
             else:
-                mention_text = f"@{role_mention}\n"
-
-        # Construct the base output.
-        output = (
-            f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-            "📌 [LFG Guide](https://wiki.mulveycreations.com/discord/lfg)"
-        ) + extra_text
-
-        await self.send_reply(ctx, output)
+                output = (
+                    f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                    "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+                )
+                await self.send_reply(ctx, output)
+        else:
+            await self.send_reply(ctx, f"Could not find role: {role_mention}.")
 
     @commands.command()
     async def host(self, ctx):
@@ -193,7 +224,7 @@ class Wiki(commands.Cog):
             return
         output = (
             "Interested in hosting or promoting something in PA? Check out our guidelines first:\n"
-            "📌 [Host/Advertise](https://wiki.mulveycreations.com/servers/hosting)"
+            "📌 [Host/Advertise](https://wiki.parentsthatga.me/servers/hosting)"
         )
         await self.send_reply(ctx, output)
 
@@ -203,7 +234,7 @@ class Wiki(commands.Cog):
             return
         output = (
             "Curious about our biweekly D&D games or need help creating a character? Start here:\n"
-            "🧙 [D&D Guide](https://wiki.mulveycreations.com/discord/dnd)"
+            "🧙 [D&D Guide](https://wiki.parentsthatga.me/discord/dnd)"
         )
         await self.send_reply(ctx, output)
 
@@ -217,17 +248,17 @@ class Wiki(commands.Cog):
             3: "**3️⃣ Be Civil & Read the Room**\nAvoid sensitive topics unless everyone is comfortable. No such discussions in text channels.",
             4: "**4️⃣ NSFW Content Is Not Allowed**\nExplicit, grotesque, or pornographic content will result in a ban.",
             5: "**5️⃣ Communication - English Preferred**\nPlease speak in English so the whole community can engage.",
-            6: "**6️⃣ Use Channels & Roles Properly**\nUse the correct channels for each topic.\n📌 [Roles How-To](https://wiki.mulveycreations.com/discord/roles)\n📌 [LFG Guide](https://wiki.mulveycreations.com/discord/lfg)",
+            6: "**6️⃣ Use Channels & Roles Properly**\nUse the correct channels for each topic.\n📌 [Roles How-To](https://wiki.parentsthatga.me/discord/roles)\n📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)",
             7: "**7️⃣ Promoting Your Own Content**\nPromote in #promote-yourself or #clip-sharing only. Apply in #applications to post on official PA platforms.",
             8: "**8️⃣ Crowdfunding & Solicitation**\nNo donation or solicitation links allowed. DM spam is not tolerated.",
-            9: "**9️⃣ No Unapproved Invites or Links**\nGame server links require vetting and Discord invites are absolutely not allowed.\n📌 [Host/Advertise](https://wiki.mulveycreations.com/servers/hosting)\n📌 [Apply for Vetting](https://discord.com/channels/629113661113368594/693601096467218523/1349427482637635677)",
+            9: "**9️⃣ No Unapproved Invites or Links**\nGame server links require vetting and Discord invites are absolutely not allowed.\n📌 [Host/Advertise](https://wiki.parentsthatga.me/servers/hosting)\n📌 [Apply for Vetting](https://discord.com/channels/629113661113368594/693601096467218523/1349427482637635677)",
             10: "**🔟 Build-A-VC Channel Names**\nChannel names must be clean and appropriate for Discord Discovery."
         }
         rule_text = rules.get(rule_number)
         if rule_text:
             embed = discord.Embed(
                 title="Full Rules",
-                url="https://wiki.mulveycreations.com/rules",
+                url="https://wiki.parentsthatga.me/rules",
                 description=rule_text,
                 color=discord.Color.orange()
             )
@@ -241,7 +272,7 @@ class Wiki(commands.Cog):
             return
         output = (
             "Curious about WoW? Check out the guide here:\n"
-            "https://wiki.mulveycreations.com/WoW"
+            "https://wiki.parentsthatga.me/WoW"
         )
         await self.send_reply(ctx, output)
 

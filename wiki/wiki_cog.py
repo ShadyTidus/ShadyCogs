@@ -40,7 +40,6 @@ class Wiki(commands.Cog):
             "Skye", "Librarian Raccoon", "Zara", "BadgerSnacks", "Donnie",
             "Captain Sawbones", "Captain Soulo"
         ]
-
         self.alias_to_role = {
             "7dtd": "7 Days To Die", "ark": "ARK", "aoe": "Age of Empires", "amongus": "Among Us",
             "acnh": "Animal Crossing", "apex": "Apex Legends", "assetto": "Assetto Corsa",
@@ -71,6 +70,37 @@ class Wiki(commands.Cog):
             "division": "The Division", "tinytina": "Tiny Tina's Wonderlands", "trucksim": "Truck Simulator",
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
+        }
+        # Map game names (as used in role_mention) to their designated channel names (the channel's name string)
+        self.role_to_channel = {
+            "Escape from Tarkov": "escape-from-tarkov",
+            "Hell Let Loose": "hell-let-loose",
+            "Rainbow Six": "rainbow-six",
+            "Ready Or Not": "ready-or-not",
+            "War Thunder": "war-thunder",
+            "Magic: The Gathering": "mtg-chat",
+            "Pokémon": "pokémon-chat",
+            "Table-Top Simulator": "table-top-simulator",
+            "Warhammer 40k": "warhammer-40k",
+            "Diablo": "all-diablo-chat",
+            "Path of Exile": "path-of-exile",
+            "Path of Exile 2": "path-of-exile-2",
+            "Elden Ring": "elden-ring",
+            "Baldur's Gate 3": "baldurs-gate-3-all-platforms",
+            "Monster Hunter": "monster-hunter-all-titles",
+            "Final Fantasy": "final-fantasy",
+            "Assetto Corsa": "assetto-corsa",
+            "League of Legends": "league-of-legends",
+            "Dota 2": "dota-2",
+            "Smite": "smite",
+            "Marvel Rivals": "marvel-rivals",
+            "Overwatch": "overwatch-2",
+            "Phasmophobia": "phasmophobia",
+            "R.E.P.O": "repo",
+            "Wild Rift": "wild-rift",
+            "iRacing": "iracing",
+            "Fortnite": "fortnite-gen-chat",
+            "Forza": "forza"
         }
 
     def is_authorized(self, ctx):
@@ -106,6 +136,7 @@ class Wiki(commands.Cog):
         role_mention = None
         mention_text = ""
 
+        # Attempt to get role info from the referenced message.
         if ctx.message.reference:
             try:
                 replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
@@ -126,6 +157,7 @@ class Wiki(commands.Cog):
             except Exception:
                 pass
 
+        # If a pingable game role was found, prepare the mention.
         if role_mention:
             role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
             if role_obj:
@@ -133,10 +165,24 @@ class Wiki(commands.Cog):
             else:
                 mention_text = f"@{role_mention}\n"
 
+        # Construct the base output.
         output = (
             f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
             "📌 [LFG Guide](https://wiki.mulveycreations.com/discord/lfg)"
         )
+
+        # If a game role was detected and it has a designated channel mapping, check if the current channel matches.
+        if role_mention and role_mention in self.role_to_channel:
+            expected_channel_name = self.role_to_channel[role_mention]
+            if ctx.channel.name != expected_channel_name:
+                # Try to find the target channel object by name.
+                target_channel = discord.utils.get(ctx.guild.text_channels, name=expected_channel_name)
+                if target_channel:
+                    extra_text = f"\nYou would also have a better chance finding players in {target_channel.mention}, and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
+                else:
+                    extra_text = f"\nYou would also have a better chance finding players in #{expected_channel_name}, and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
+                output += extra_text
+
         await self.send_reply(ctx, output)
 
     @commands.command()

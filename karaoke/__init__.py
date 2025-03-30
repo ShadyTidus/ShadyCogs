@@ -1,0 +1,1 @@
+from .karaoke_cog import setup

@@ -19,15 +19,15 @@ class FafoView(discord.ui.View):
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         try:
-            # Calculate the timeout duration (5 minutes from now)
             until = datetime.utcnow() + timedelta(minutes=5)
             await interaction.user.edit(communication_disabled_until=until)
-            if not interaction.response.is_done():
-                await interaction.response.send_message("You have been timed out for 5 minutes.", ephemeral=True)
-        except Exception as e:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"Failed to timeout you: {e}", ephemeral=True)
+            await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send("I don’t have permission to timeout you. Please check my role position.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
 
 class Wiki(commands.Cog):
     def __init__(self, bot):
@@ -71,7 +71,7 @@ class Wiki(commands.Cog):
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
         }
-        # Map game names (as used in role_mention) to their designated channel names (the channel's name string)
+        # Map game roles to their designated channel names.
         self.role_to_channel = {
             "Escape from Tarkov": "escape-from-tarkov",
             "Hell Let Loose": "hell-let-loose",

@@ -21,13 +21,13 @@ class FafoView(discord.ui.View):
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         try:
-            until = datetime.utcnow() + timedelta(minutes=5)
-            await interaction.user.edit(communication_disabled_until=until)
+            duration = timedelta(minutes=5)
+            await interaction.user.timeout(duration, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
         except discord.Forbidden:
-            await interaction.followup.send("I don’t have permission to timeout you. Please check my role position.", ephemeral=True)
+            await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
+            await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
 
 class Wiki(commands.Cog):
     def __init__(self, bot):
@@ -71,36 +71,36 @@ class Wiki(commands.Cog):
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
         }
-        # New decoupled mapping: role name to designated channel name (without the "#")
-        self.role_name_to_channel_name = {
-            "Escape from Tarkov": "escape-from-tarkov",
-            "Hell Let Loose": "hell-let-loose",
-            "Rainbow Six": "rainbow-six",
-            "Ready Or Not": "ready-or-not",
-            "War Thunder": "war-thunder",
-            "Magic: The Gathering": "mtg-chat",
-            "Pokémon": "pokémon-chat",
-            "Table-Top Simulator": "table-top-simulator",
-            "Warhammer 40k": "warhammer-40k",
-            "Diablo": "all-diablo-chat",
-            "Path of Exile": "path-of-exile",
-            "Path of Exile 2": "path-of-exile-2",
-            "Elden Ring": "elden-ring",
-            "Baldur's Gate 3": "baldurs-gate-3-all-platforms",
-            "Monster Hunter": "monster-hunter-all-titles",
-            "Final Fantasy": "final-fantasy",
-            "Assetto Corsa": "assetto-corsa",
-            "League of Legends": "league-of-legends",
-            "Dota 2": "dota-2",
-            "Smite": "smite",
-            "Marvel Rivals": "marvel-rivals",
-            "Overwatch": "overwatch-2",
-            "Phasmophobia": "phasmophobia",
-            "R.E.P.O": "repo",
-            "Wild Rift": "wild-rift",
-            "iRacing": "iracing",
-            "Fortnite": "fortnite-gen-chat",
-            "Forza": "forza"
+        # Mapping from role names to designated channel IDs (no '#' prefix; use actual channel IDs)
+        self.role_name_to_channel_id = {
+            "Escape from Tarkov": 1325558852120350863,
+            "Hell Let Loose": 1325565264246603859,
+            "Rainbow Six": 1325558740086161428,
+            "Ready Or Not": 1325558905907970199,
+            "War Thunder": 1325565211884781588,
+            "Magic: The Gathering": 1065493485714686003,
+            "Pokémon": 1065621451417337956,
+            "Table-Top Simulator": 1217529197594021889,
+            "Warhammer 40k": 1217529421863456928,
+            "Diablo": 1123047882669436958,
+            "Path of Exile": 1205575608231530506,
+            "Path of Exile 2": 1310386526093578251,
+            "Elden Ring": 1315179628993839155,
+            "Baldur's Gate 3": 1315180707685073028,
+            "Monster Hunter": 1315178720364859402,
+            "Final Fantasy": 1328766811671498833,
+            "Assetto Corsa": 1315312906178396180,
+            "League of Legends": 1308589894268092476,
+            "Dota 2": 1308590005911814224,
+            "Smite": 1308590072689590374,
+            "Marvel Rivals": 1318214983670042707,
+            "Overwatch": 1318215028494831697,
+            "Phasmophobia": 1328029591062839376,
+            "R.E.P.O": 1351009382154109018,
+            "Wild Rift": 1316230560946982942,
+            "iRacing": 1328799846341148672,
+            "Fortnite": 1316416079333167149,
+            "Forza": 1328799912892170260
         }
 
     def is_authorized(self, ctx):
@@ -163,18 +163,15 @@ class Wiki(commands.Cog):
             role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
             if role_obj:
                 mention_text = f"{role_obj.mention}\n"
-                # Check the correct channel for the role
-                expected_channel = self.role_name_to_channel_name.get(role_obj.name)
-                if expected_channel and ctx.channel.name != expected_channel:
-                    channel_obj = discord.utils.get(ctx.guild.text_channels, name=expected_channel)
-                    if channel_obj:
-                        extra_text = (f"\nYou would also have a better chance finding players in "
-                                      f"{channel_obj.mention}, and if this channel is showing as no access, "
-                                      "grab the game-specific role from Channels & Roles!")
-                    else:
-                        extra_text = (f"\nYou would also have a better chance finding players in "
-                                      f"#{expected_channel}, and if this channel is showing as no access, "
-                                      "grab the game-specific role from Channels & Roles!")
+                # Use the new mapping to get the designated channel ID.
+                expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
+                if expected_channel_id:
+                    target_channel = ctx.guild.get_channel(expected_channel_id)
+                    if target_channel and ctx.channel.id != target_channel.id:
+                        extra_text = (
+                            f"\nYou would also have a better chance finding players in {target_channel.mention}, "
+                            "and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
+                        )
             else:
                 mention_text = f"@{role_mention}\n"
 

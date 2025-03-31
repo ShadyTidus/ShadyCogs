@@ -24,44 +24,59 @@ class FafoView(discord.ui.View):
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         """
         Button callback to timeout the user for 5 minutes.
-        Logs results to the bot owner's DM (or specified user).
+        Logs every step and DM's logs to the bot admin.
         """
-        await interaction.response.defer(ephemeral=True)
-        log_lines = []
-        log_user_id = 272585510134743040  # Your user ID for logging
+        log_user_id = 272585510134743040  # Change if needed
+        log_lines = [f"📌 FAFO button clicked by {interaction.user} ({interaction.user.id})"]
 
         try:
+            await interaction.response.defer(ephemeral=True)
+            log_lines.append("✅ Interaction response deferred")
+
             duration = timedelta(minutes=5)
             until_time = discord.utils.utcnow() + duration
+            log_lines.append(f"⏳ Timeout duration: 5 minutes (until {until_time})")
 
-            member = interaction.guild.get_member(interaction.user.id)
-            log_lines.append(f"🔍 Clicked by: {interaction.user} (ID: {interaction.user.id})")
-            log_lines.append(f"🕵️‍♂️ Member resolved: {'Yes' if member else 'No'}")
+            # Prefer interaction.user directly if it's a Member
+            member = interaction.user if isinstance(interaction.user, discord.Member) else interaction.guild.get_member(interaction.user.id)
 
             if member is None:
+                log_lines.append("❌ Member resolution failed. Could not retrieve member.")
                 await interaction.followup.send("Member not found.", ephemeral=True)
-                log_lines.append("❌ Failed: Member not found in guild.")
                 return
 
-            await member.timeout(until=until_time, reason="FAFO button clicked.")
-            await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
-            log_lines.append("✅ Success: Timeout applied.")
-        except discord.Forbidden:
-            await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)
-            log_lines.append("⛔ Forbidden: Insufficient permissions.")
-        except discord.HTTPException as e:
-            await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
-            log_lines.append(f"⚠️ HTTPException: {str(e)}")
-        except Exception as e:
-            await interaction.followup.send("An unexpected error occurred.", ephemeral=True)
-            log_lines.append(f"💥 Unexpected Error: {str(e)}")
+            # Log role positions and perms
+            perms = interaction.channel.permissions_for(interaction.guild.me)
+            log_lines.append(f"👑 Bot top role position: {interaction.guild.me.top_role.position}")
+            log_lines.append(f"📛 User top role position: {member.top_role.position}")
+            log_lines.append(f"🔐 Bot permissions in channel: {perms}")
+            log_lines.append(f"➡️ Attempting to timeout member...")
 
-        # Send log to designated user (you)
+            await member.timeout(until=until_time, reason="FAFO button clicked.")
+            log_lines.append("✅ Member timed out successfully")
+
+            await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
+        except discord.Forbidden:
+            log_lines.append("❌ Forbidden error: Missing permissions to timeout user")
+            await interaction.followup.send(
+                "I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True
+            )
+        except discord.HTTPException as e:
+            log_lines.append(f"❌ HTTPException during timeout: {e}")
+            await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
+        except Exception as e:
+            log_lines.append(f"❌ Unexpected exception: {e}")
+            await interaction.followup.send("An unexpected error occurred.", ephemeral=True)
+
+        # Try to send log to DM
         try:
             owner = await interaction.client.fetch_user(log_user_id)
             await owner.send("📋 **FAFO Debug Log**\n" + "\n".join(log_lines))
+        except discord.Forbidden:
+            print("❌ Could not send DM: Forbidden (maybe DMs are blocked?)")
         except Exception as e:
-            print(f"Failed to send debug log to user {log_user_id}: {e}")
+            print(f"❌ Could not send DM: {e}")
+            print("\n".join(log_lines))  # Always log to console as fallback
 
 class Wiki(commands.Cog):
     def __init__(self, bot):
@@ -188,12 +203,17 @@ class Wiki(commands.Cog):
         role_mention = None
         mention_text = ""
         extra_text = ""
+        replied_user = ctx.author  # default fallback
+        reply_target = ctx
 
         # Attempt to get role info from the referenced message.
         if ctx.message.reference:
             try:
                 replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
                 content = replied.content.lower()
+                replied_user = replied.author
+                reply_target = replied
+
                 # First pass: check each word after stripping punctuation.
                 for word in content.split():
                     cleaned = word.strip(string.punctuation)
@@ -207,8 +227,8 @@ class Wiki(commands.Cog):
                         if re.search(pattern, content):
                             role_mention = role_name
                             break
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error fetching referenced message: {e}")
 
         if role_mention is None:
             await self.send_reply(ctx, "No game alias detected in the referenced message.")
@@ -217,51 +237,52 @@ class Wiki(commands.Cog):
         # Get the role object.
         role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
         if role_obj:
-            # Default: ping both the role and the user.
-            mention_text = f"{role_obj.mention} {ctx.author.mention}\n"
+            mention_text = f"{role_obj.mention} {replied_user.mention}\n"
             expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
-            if expected_channel_id:
-                if ctx.channel.id == expected_channel_id:
-                    # Correct channel: send message in current channel.
-                    output = (
-                        f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                        "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
-                    )
-                    await self.send_reply(ctx, output)
-                else:
-                    # Wrong channel: inform the user in the current channel.
-                    extra_text = (
-                        f"Detected game role: **{role_obj.name}**. This is not the correct channel. "
-                        f"Please grab the game-specific role from {self.channels_and_roles_link}.\n"
-                    )
-                    await self.send_reply(ctx, extra_text)
-                    # If the user doesn't have the role, assign it.
-                    if role_obj not in ctx.author.roles:
-                        try:
-                            await ctx.author.add_roles(role_obj, reason="User redirected by betalfg command")
-                        except Exception as e:
-                            print(f"Failed to add role to user: {e}")
-                    # Now, in the correct channel, send the LFG message.
-                    target_channel = ctx.guild.get_channel(expected_channel_id)
-                    if target_channel:
-                        output = (
-                            f"{role_obj.mention} {ctx.author.mention}\n"
-                            "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                            "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
-                        )
-                        try:
-                            await target_channel.send(output)
-                        except Exception as e:
-                            print(f"Failed to send message in target channel: {e}")
-                    else:
-                        await self.send_reply(ctx, "Error: Designated channel not found.")
-            else:
-                # No designated channel mapped: proceed as usual.
+
+            # CASE 1: Correct channel
+            if expected_channel_id and ctx.channel.id == expected_channel_id:
                 output = (
                     f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
                     "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
                 )
-                await self.send_reply(ctx, output)
+                await reply_target.reply(output)
+
+            # CASE 2: Wrong channel
+            elif expected_channel_id:
+                target_channel = ctx.guild.get_channel(expected_channel_id)
+                extra_text = (
+                    f"Detected game role: **{role_obj.name}**. This is not the correct channel, "
+                    f"we have a dedicated channel here: {target_channel.mention if target_channel else 'Unknown'}.\n"
+                    f"Please grab the game-specific role from {self.channels_and_roles_link}."
+                )
+                await reply_target.reply(extra_text)
+
+                # Give role if missing
+                if role_obj not in replied_user.roles:
+                    try:
+                        await replied_user.add_roles(role_obj, reason="User redirected by LFG command")
+                    except Exception as e:
+                        print(f"Failed to add role to user: {e}")
+
+                # Also send LFG ping in the right channel
+                if target_channel:
+                    lfg_text = (
+                        f"{role_obj.mention} {replied_user.mention}\n"
+                        "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                        "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+                    )
+                    try:
+                        await target_channel.send(lfg_text)
+                    except Exception as e:
+                        print(f"Failed to send LFG in proper channel: {e}")
+            else:
+                # CASE 3: No mapped channel
+                output = (
+                    f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                    "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+                )
+                await reply_target.reply(output)
         else:
             await self.send_reply(ctx, f"Could not find role: {role_mention}.")
 

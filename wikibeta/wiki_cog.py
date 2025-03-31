@@ -22,12 +22,11 @@ class FafoView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         try:
             duration = timedelta(minutes=5)
-            until_time = discord.utils.utcnow() + duration
+            # Ensure the user is a Member object
             member = interaction.guild.get_member(interaction.user.id)
             if member is None:
-                await interaction.followup.send("Member not found.", ephemeral=True)
-                return
-            await member.timeout(until=until_time, reason="FAFO button clicked.")
+                member = interaction.user  # fallback; should normally not happen in a guild
+            await member.timeout(duration, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)
@@ -107,13 +106,15 @@ class Wiki(commands.Cog):
             "Fortnite": 1316416079333167149,
             "Forza": 1328799912892170260
         }
-        # For the Channels & Roles link, we use the special clickable string <id:customize>
+        # The special clickable link for Channels & Roles uses the internal format.
         self.channels_and_roles_link = "<id:customize>"
 
     def is_authorized(self, ctx):
+        """Return True if the invoking user has one of the allowed roles."""
         return any(role.name in self.allowed_roles for role in ctx.author.roles)
 
     async def delete_and_check(self, ctx):
+        """Delete the invoking message and return True if the user is authorized."""
         try:
             await ctx.message.delete()
         except discord.Forbidden:
@@ -123,8 +124,11 @@ class Wiki(commands.Cog):
         return True
 
     async def send_reply(self, ctx, *args, **kwargs):
-        """Helper to reply to the original message if the command was run as a reply.
-           Returns the sent message."""
+        """
+        Helper to reply to the referenced message if available,
+        otherwise sends a new message in the current channel.
+        Returns the sent message.
+        """
         if ctx.message.reference:
             try:
                 original_message = await ctx.channel.fetch_message(ctx.message.reference.message_id)
@@ -137,6 +141,10 @@ class Wiki(commands.Cog):
 
     @commands.command()
     async def lfg(self, ctx):
+        """
+        📌 Reply to a message to detect game interest and direct users to the correct LFG channel.
+        If a game role is detected, the bot will tag the role and provide an LFG guide.
+        """
         if not await self.delete_and_check(ctx):
             return
 
@@ -149,13 +157,13 @@ class Wiki(commands.Cog):
             try:
                 replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
                 content = replied.content.lower()
-                # First pass: check each word after stripping punctuation
+                # First pass: check each word after stripping punctuation.
                 for word in content.split():
                     cleaned = word.strip(string.punctuation)
                     if cleaned in self.alias_to_role:
                         role_mention = self.alias_to_role[cleaned]
                         break
-                # Second pass: regex search for any alias as a whole word
+                # Second pass: regex search for any alias as a whole word.
                 if not role_mention:
                     for alias, role_name in self.alias_to_role.items():
                         pattern = r'\b' + re.escape(alias) + r'\b'
@@ -172,7 +180,7 @@ class Wiki(commands.Cog):
         # Get the role object.
         role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
         if role_obj:
-            # In the correct channel, we want to ping both the role and the user.
+            # Default correct-channel mention: ping both role and user.
             mention_text = f"{role_obj.mention} {ctx.author.mention}\n"
             expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
             if expected_channel_id:
@@ -184,7 +192,7 @@ class Wiki(commands.Cog):
                     )
                     await self.send_reply(ctx, output)
                 else:
-                    # Wrong channel: inform the user in the current channel.
+                    # Wrong channel: inform the user in current channel.
                     extra_text = (
                         f"Detected game role: **{role_obj.name}**. This is not the correct channel. "
                         f"Please grab the game-specific role from {self.channels_and_roles_link}.\n"
@@ -196,7 +204,7 @@ class Wiki(commands.Cog):
                             await ctx.author.add_roles(role_obj, reason="User redirected by -lfg command")
                         except Exception as e:
                             print(f"Failed to add role to user: {e}")
-                    # Now send the LFG message in the correct channel.
+                    # Now, in the correct channel, send the LFG message.
                     target_channel = ctx.guild.get_channel(expected_channel_id)
                     if target_channel:
                         output = (
@@ -211,6 +219,7 @@ class Wiki(commands.Cog):
                     else:
                         await self.send_reply(ctx, "Error: Designated channel not found.")
             else:
+                # No designated channel mapped: proceed as usual.
                 output = (
                     f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
                     "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
@@ -221,6 +230,9 @@ class Wiki(commands.Cog):
 
     @commands.command()
     async def host(self, ctx):
+        """
+        📣 Reply to a message and the bot will link to the hosting/advertising guidelines in PA.
+        """
         if not await self.delete_and_check(ctx):
             return
         output = (
@@ -231,6 +243,9 @@ class Wiki(commands.Cog):
 
     @commands.command()
     async def biweekly(self, ctx):
+        """
+        🧙 Reply to a message and this will post info about our biweekly D&D sessions and how to get started.
+        """
         if not await self.delete_and_check(ctx):
             return
         output = (
@@ -241,6 +256,10 @@ class Wiki(commands.Cog):
 
     @commands.command()
     async def rule(self, ctx, rule_number: int):
+        """
+        📘 Reply to a message and show a quick summary of the selected rule with a link to the full rules page.
+        Use: `-rule 3`
+        """
         if not await self.delete_and_check(ctx):
             return
         rules = {
@@ -269,6 +288,9 @@ class Wiki(commands.Cog):
 
     @commands.command()
     async def wow(self, ctx):
+        """
+        🐉 Reply to a message and this will link to the World of Warcraft wiki section for PA players.
+        """
         if not await self.delete_and_check(ctx):
             return
         output = (
@@ -279,6 +301,9 @@ class Wiki(commands.Cog):
 
     @commands.command()
     async def fafo(self, ctx):
+        """
+        ⚠️ Under development. Posts a warning message and a 'FAFO' button. Users who click it are timed out for 5 minutes.
+        """
         if not await self.delete_and_check(ctx):
             return
         warning_text = (

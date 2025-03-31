@@ -21,59 +21,38 @@ class FafoView(discord.ui.View):
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         """
         Button callback to timeout the user for 5 minutes.
-        Logs every step and DM's logs to the bot admin.
+        Uses member.edit() to apply the timeout correctly.
+        Also logs the action to a fixed user via DM.
         """
-        log_user_id = 272585510134743040  # Change if needed
-        log_lines = [f"📌 FAFO button clicked by {interaction.user} ({interaction.user.id})"]
-
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)
-            log_lines.append("✅ Interaction response deferred")
-
             duration = timedelta(minutes=5)
             until_time = discord.utils.utcnow() + duration
-            log_lines.append(f"⏳ Timeout duration: 5 minutes (until {until_time})")
-
-            # Prefer interaction.user directly if it's a Member
-            member = interaction.user if isinstance(interaction.user, discord.Member) else interaction.guild.get_member(interaction.user.id)
-
+            member = interaction.guild.get_member(interaction.user.id)
             if member is None:
-                log_lines.append("❌ Member resolution failed. Could not retrieve member.")
                 await interaction.followup.send("Member not found.", ephemeral=True)
                 return
 
-            # Log role positions and perms
-            perms = interaction.channel.permissions_for(interaction.guild.me)
-            log_lines.append(f"👑 Bot top role position: {interaction.guild.me.top_role.position}")
-            log_lines.append(f"📛 User top role position: {member.top_role.position}")
-            log_lines.append(f"🔐 Bot permissions in channel: {perms}")
-            log_lines.append(f"➡️ Attempting to timeout member...")
-
-            await member.timeout(until=until_time, reason="FAFO button clicked.")
-            log_lines.append("✅ Member timed out successfully")
-
+            await member.edit(timeout=until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
-        except discord.Forbidden:
-            log_lines.append("❌ Forbidden error: Missing permissions to timeout user")
-            await interaction.followup.send(
-                "I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True
-            )
-        except discord.HTTPException as e:
-            log_lines.append(f"❌ HTTPException during timeout: {e}")
-            await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
-        except Exception as e:
-            log_lines.append(f"❌ Unexpected exception: {e}")
-            await interaction.followup.send("An unexpected error occurred.", ephemeral=True)
 
-        # Try to send log to DM
-        try:
-            owner = await interaction.client.fetch_user(log_user_id)
-            await owner.send("📋 **FAFO Debug Log**\n" + "\n".join(log_lines))
+            # DM log to owner
+            owner_id = 272585510134743040  # ShadyTidus
+            owner = interaction.client.get_user(owner_id)
+            if owner:
+                log_msg = (
+                    f"🚨 **FAFO Click Logged**\n"
+                    f"User `{member}` (`{member.id}`) clicked the FAFO button in server **{interaction.guild.name}**.\n"
+                    f"They were timed out until `{until_time.strftime('%Y-%m-%d %H:%M:%S')}`."
+                )
+                try:
+                    await owner.send(log_msg)
+                except discord.Forbidden:
+                    print("Could not DM the owner (Forbidden).")
         except discord.Forbidden:
-            print("❌ Could not send DM: Forbidden (maybe DMs are blocked?)")
-        except Exception as e:
-            print(f"❌ Could not send DM: {e}")
-            print("\n".join(log_lines))  # Always log to console as fallback
+            await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
 
 class Wiki(commands.Cog):
     def __init__(self, bot):

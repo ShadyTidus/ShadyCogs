@@ -175,8 +175,13 @@ class Wiki(commands.Cog):
         msg = await ctx.send(*args, **kwargs)
         return msg
 
-    @commands.command()
+    @commands.command(name="lfg")
     async def lfg(self, ctx):
+        """
+        📌 (Beta) Reply to a message to detect game interest and direct users to the correct LFG channel.
+        If a game role is detected, the bot will tag the role and provide an LFG guide.
+        If used in the wrong channel, the user is informed and directed to grab the game-specific role from <id:customize>.
+        """
         if not await self.delete_and_check(ctx):
             return
 
@@ -189,13 +194,13 @@ class Wiki(commands.Cog):
             try:
                 replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
                 content = replied.content.lower()
-                # First pass: check each word after stripping punctuation
+                # First pass: check each word after stripping punctuation.
                 for word in content.split():
                     cleaned = word.strip(string.punctuation)
                     if cleaned in self.alias_to_role:
                         role_mention = self.alias_to_role[cleaned]
                         break
-                # Second pass: regex search for any alias as a whole word
+                # Second pass: regex search for any alias as a whole word.
                 if not role_mention:
                     for alias, role_name in self.alias_to_role.items():
                         pattern = r'\b' + re.escape(alias) + r'\b'
@@ -205,30 +210,60 @@ class Wiki(commands.Cog):
             except Exception:
                 pass
 
-        # If a pingable game role was found, prepare the mention.
-        if role_mention:
-            role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
-            if role_obj:
-                mention_text = f"{role_obj.mention}\n"
-                # Use the new mapping to get the designated channel ID.
-                expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
-                if expected_channel_id:
+        if role_mention is None:
+            await self.send_reply(ctx, "No game alias detected in the referenced message.")
+            return
+
+        # Get the role object.
+        role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
+        if role_obj:
+            # Default: ping both the role and the user.
+            mention_text = f"{role_obj.mention} {ctx.author.mention}\n"
+            expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
+            if expected_channel_id:
+                if ctx.channel.id == expected_channel_id:
+                    # Correct channel: send message in current channel.
+                    output = (
+                        f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                        "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+                    )
+                    await self.send_reply(ctx, output)
+                else:
+                    # Wrong channel: inform the user in the current channel.
+                    extra_text = (
+                        f"Detected game role: **{role_obj.name}**. This is not the correct channel. "
+                        f"Please grab the game-specific role from {self.channels_and_roles_link}.\n"
+                    )
+                    await self.send_reply(ctx, extra_text)
+                    # If the user doesn't have the role, assign it.
+                    if role_obj not in ctx.author.roles:
+                        try:
+                            await ctx.author.add_roles(role_obj, reason="User redirected by betalfg command")
+                        except Exception as e:
+                            print(f"Failed to add role to user: {e}")
+                    # Now, in the correct channel, send the LFG message.
                     target_channel = ctx.guild.get_channel(expected_channel_id)
-                    if target_channel and ctx.channel.id != target_channel.id:
-                        extra_text = (
-                            f"\nYou would also have a better chance finding players in {target_channel.mention}, "
-                            "and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
+                    if target_channel:
+                        output = (
+                            f"{role_obj.mention} {ctx.author.mention}\n"
+                            "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                            "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
                         )
+                        try:
+                            await target_channel.send(output)
+                        except Exception as e:
+                            print(f"Failed to send message in target channel: {e}")
+                    else:
+                        await self.send_reply(ctx, "Error: Designated channel not found.")
             else:
-                mention_text = f"@{role_mention}\n"
-
-        # Construct the base output.
-        output = (
-            f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-            "📌 [LFG Guide](https://wiki.mulveycreations.com/discord/lfg)"
-        ) + extra_text
-
-        await self.send_reply(ctx, output)
+                # No designated channel mapped: proceed as usual.
+                output = (
+                    f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                    "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+                )
+                await self.send_reply(ctx, output)
+        else:
+            await self.send_reply(ctx, f"Could not find role: {role_mention}.")
 
     @commands.command()
     async def host(self, ctx):

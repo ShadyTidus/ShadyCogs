@@ -1,1 +1,1 @@
-from .wiki_cog import setup
+from .wikibeta_cog import setup

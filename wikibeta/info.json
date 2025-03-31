@@ -2,7 +2,7 @@
   "author": ["ShadyTidus"],
   "description": "Community Wiki Helper: LFG, Hosting, Biweekly D&D links, and rule explanations.",
   "install_msg": "Thanks for installing the Wiki Cog! Use `-lfg`, `-host`, `-biweekly`, or `-rule#` to get started.",
-  "name": "wiki",
+  "name": "wikibeta",
   "short": "Wiki helper commands for the PA Discord server.",
   "requirements": [],
   "tags": ["community", "wiki", "discord", "lfg", "rules"],

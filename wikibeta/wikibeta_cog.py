@@ -7,10 +7,10 @@ from redbot.core import commands
 class FafoView(discord.ui.View):
     def __init__(self, timeout: int = 180):
         super().__init__(timeout=timeout)
-        self.message = None  # Will store the message this view is attached to
+        self.message = None  # Stores the message this view is attached to
 
     async def on_timeout(self):
-        # When the view times out, attempt to delete the message that contains it.
+        # When the view times out (after 3 minutes), attempt to delete the message containing it.
         if self.message:
             try:
                 await self.message.delete()
@@ -19,23 +19,31 @@ class FafoView(discord.ui.View):
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        """
+        (Beta) Button callback for FAFO.
+        Attempts to timeout the clicking user for 5 minutes using the Member.timeout() method.
+        If the user is not found (fallback), sends an appropriate message.
+        """
         await interaction.response.defer(ephemeral=True)
         try:
             duration = timedelta(minutes=5)
-            # Ensure the user is a Member object
+            until_time = discord.utils.utcnow() + duration
+            # Ensure interaction.user is a Member; fallback if not.
             member = interaction.guild.get_member(interaction.user.id)
             if member is None:
-                member = interaction.user  # fallback; should normally not happen in a guild
-            await member.timeout(duration, reason="FAFO button clicked.")
+                await interaction.followup.send("Member not found.", ephemeral=True)
+                return
+            await member.timeout(until=until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)
         except discord.HTTPException as e:
             await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
 
-class Wiki(commands.Cog):
+class Wikibeta(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Allowed roles for running these commands.
         self.allowed_roles = [
             "Game Server Team", "Advisors", "Wardens", "The Brute Squad", "Sentinels",
             "Community Manager - Helldivers", "Community Manager - Book Club",
@@ -44,6 +52,7 @@ class Wiki(commands.Cog):
             "Skye", "Librarian Raccoon", "Zara", "BadgerSnacks", "Donnie",
             "Captain Sawbones", "Captain Soulo"
         ]
+        # Maps common game aliases (all lowercase) to the exact role name.
         self.alias_to_role = {
             "7dtd": "7 Days To Die", "ark": "ARK", "aoe": "Age of Empires", "amongus": "Among Us",
             "acnh": "Animal Crossing", "apex": "Apex Legends", "assetto": "Assetto Corsa",
@@ -75,7 +84,7 @@ class Wiki(commands.Cog):
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
         }
-        # Mapping from role names to designated channel IDs (using actual channel IDs)
+        # Mapping from role names to designated channel IDs (use the actual channel IDs)
         self.role_name_to_channel_id = {
             "Escape from Tarkov": 1325558852120350863,
             "Hell Let Loose": 1325565264246603859,
@@ -106,20 +115,18 @@ class Wiki(commands.Cog):
             "Fortnite": 1316416079333167149,
             "Forza": 1328799912892170260
         }
-        # The special clickable link for Channels & Roles uses the internal format.
+        # Use Discord's internal format for the Channels & Roles link.
         self.channels_and_roles_link = "<id:customize>"
 
-    def is_authorized(self, ctx):
-        """Return True if the invoking user has one of the allowed roles."""
-        return any(role.name in self.allowed_roles for role in ctx.author.roles)
-
     async def delete_and_check(self, ctx):
-        """Delete the invoking message and return True if the user is authorized."""
+        """
+        Delete the invoking message and return True if the user is authorized.
+        """
         try:
             await ctx.message.delete()
         except discord.Forbidden:
             pass
-        if not self.is_authorized(ctx):
+        if not any(role.name in self.allowed_roles for role in ctx.author.roles):
             return False
         return True
 
@@ -139,11 +146,12 @@ class Wiki(commands.Cog):
         msg = await ctx.send(*args, **kwargs)
         return msg
 
-    @commands.command()
+    @commands.command(name="betalfg")
     async def lfg(self, ctx):
         """
-        📌 Reply to a message to detect game interest and direct users to the correct LFG channel.
+        📌 (Beta) Reply to a message to detect game interest and direct users to the correct LFG channel.
         If a game role is detected, the bot will tag the role and provide an LFG guide.
+        If used in the wrong channel, the user is informed to grab the game-specific role from <id:customize>.
         """
         if not await self.delete_and_check(ctx):
             return
@@ -180,7 +188,7 @@ class Wiki(commands.Cog):
         # Get the role object.
         role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
         if role_obj:
-            # Default correct-channel mention: ping both role and user.
+            # Default correct-channel: ping both role and user.
             mention_text = f"{role_obj.mention} {ctx.author.mention}\n"
             expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
             if expected_channel_id:
@@ -192,7 +200,7 @@ class Wiki(commands.Cog):
                     )
                     await self.send_reply(ctx, output)
                 else:
-                    # Wrong channel: inform the user in current channel.
+                    # Wrong channel: inform the user in the current channel.
                     extra_text = (
                         f"Detected game role: **{role_obj.name}**. This is not the correct channel. "
                         f"Please grab the game-specific role from {self.channels_and_roles_link}.\n"
@@ -201,7 +209,7 @@ class Wiki(commands.Cog):
                     # If the user doesn't have the role, assign it.
                     if role_obj not in ctx.author.roles:
                         try:
-                            await ctx.author.add_roles(role_obj, reason="User redirected by -lfg command")
+                            await ctx.author.add_roles(role_obj, reason="User redirected by betalfg command")
                         except Exception as e:
                             print(f"Failed to add role to user: {e}")
                     # Now, in the correct channel, send the LFG message.
@@ -228,10 +236,10 @@ class Wiki(commands.Cog):
         else:
             await self.send_reply(ctx, f"Could not find role: {role_mention}.")
 
-    @commands.command()
+    @commands.command(name="betahost")
     async def host(self, ctx):
         """
-        📣 Reply to a message and the bot will link to the hosting/advertising guidelines in PA.
+        📣 (Beta) Reply to a message and the bot will link to the hosting/advertising guidelines in PA.
         """
         if not await self.delete_and_check(ctx):
             return
@@ -241,10 +249,10 @@ class Wiki(commands.Cog):
         )
         await self.send_reply(ctx, output)
 
-    @commands.command()
+    @commands.command(name="betabiweekly")
     async def biweekly(self, ctx):
         """
-        🧙 Reply to a message and this will post info about our biweekly D&D sessions and how to get started.
+        🧙 (Beta) Reply to a message and this will post info about our biweekly D&D sessions and how to get started.
         """
         if not await self.delete_and_check(ctx):
             return
@@ -254,11 +262,11 @@ class Wiki(commands.Cog):
         )
         await self.send_reply(ctx, output)
 
-    @commands.command()
+    @commands.command(name="betarule")
     async def rule(self, ctx, rule_number: int):
         """
-        📘 Reply to a message and show a quick summary of the selected rule with a link to the full rules page.
-        Use: `-rule 3`
+        📘 (Beta) Reply to a message and show a quick summary of the selected rule with a link to the full rules page.
+        Use: `-betarule 3`
         """
         if not await self.delete_and_check(ctx):
             return
@@ -286,10 +294,10 @@ class Wiki(commands.Cog):
         else:
             await self.send_reply(ctx, "Invalid rule number. Use 1–10.")
 
-    @commands.command()
+    @commands.command(name="betawow")
     async def wow(self, ctx):
         """
-        🐉 Reply to a message and this will link to the World of Warcraft wiki section for PA players.
+        🐉 (Beta) Reply to a message and this will link to the World of Warcraft wiki section for PA players.
         """
         if not await self.delete_and_check(ctx):
             return
@@ -299,10 +307,11 @@ class Wiki(commands.Cog):
         )
         await self.send_reply(ctx, output)
 
-    @commands.command()
+    @commands.command(name="betafafo")
     async def fafo(self, ctx):
         """
-        ⚠️ Under development. Posts a warning message and a 'FAFO' button. Users who click it are timed out for 5 minutes.
+        ⚠️ (Beta) Under development. Posts a warning message and a 'FAFO' button.
+        Users who click it are timed out for 5 minutes.
         """
         if not await self.delete_and_check(ctx):
             return
@@ -314,6 +323,5 @@ class Wiki(commands.Cog):
         msg = await self.send_reply(ctx, warning_text, view=view)
         view.message = msg
 
-# Required for Redbot compatibility
 async def setup(bot):
-    await bot.add_cog(Wiki(bot))
+    await bot.add_cog(Wikibeta(bot))

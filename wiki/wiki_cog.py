@@ -4,9 +4,6 @@ import re
 from datetime import datetime, timedelta
 from redbot.core import commands
 
-import discord
-from datetime import timedelta
-
 class FafoView(discord.ui.View):
     def __init__(self, timeout: int = 180):
         super().__init__(timeout=timeout)

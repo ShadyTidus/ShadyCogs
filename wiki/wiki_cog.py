@@ -19,7 +19,10 @@ class FafoView(discord.ui.View):
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        """Button callback to timeout the user for 5 minutes."""
+        """
+        Button callback to timeout the user for 5 minutes.
+        Uses the Member.timeout() method to enforce the timeout.
+        """
         await interaction.response.defer(ephemeral=True)
         try:
             duration = timedelta(minutes=5)
@@ -38,6 +41,7 @@ class FafoView(discord.ui.View):
 class Wiki(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Allowed roles that may invoke these commands
         self.allowed_roles = [
             "Game Server Team", "Advisors", "Wardens", "The Brute Squad", "Sentinels",
             "Community Manager - Helldivers", "Community Manager - Book Club",
@@ -46,6 +50,7 @@ class Wiki(commands.Cog):
             "Skye", "Librarian Raccoon", "Zara", "BadgerSnacks", "Donnie",
             "Captain Sawbones", "Captain Soulo"
         ]
+        # Maps common game aliases (all lowercase) to the exact role name.
         self.alias_to_role = {
             "7dtd": "7 Days To Die", "ark": "ARK", "aoe": "Age of Empires", "amongus": "Among Us",
             "acnh": "Animal Crossing", "apex": "Apex Legends", "assetto": "Assetto Corsa",
@@ -108,16 +113,45 @@ class Wiki(commands.Cog):
             "Fortnite": 1316416079333167149,
             "Forza": 1328799912892170260
         }
-        # The special clickable link for Channels & Roles uses Discord's internal format.
+        # Use Discord's internal format for the Channels & Roles link.
         self.channels_and_roles_link = "<id:customize>"
+
+    def is_authorized(self, ctx):
+        """
+        Return True if the invoking user has one of the allowed roles.
+        """
+        return any(role.name in self.allowed_roles for role in ctx.author.roles)
+
+    async def delete_and_check(self, ctx):
+        """
+        Delete the invoking message and return True if the user is authorized.
+        """
+        try:
+            await ctx.message.delete()
+        except discord.Forbidden:
+            pass
+        if not self.is_authorized(ctx):
+            return False
+        return True
+
+    async def send_reply(self, ctx, *args, **kwargs):
+        """
+        Helper to reply to the referenced message if available,
+        otherwise sends a new message in the current channel.
+        Returns the sent message.
+        """
+        if ctx.message.reference:
+            try:
+                original_message = await ctx.channel.fetch_message(ctx.message.reference.message_id)
+                msg = await original_message.reply(*args, **kwargs)
+                return msg
+            except Exception:
+                pass
+        msg = await ctx.send(*args, **kwargs)
+        return msg
 
     @commands.command()
     async def lfg(self, ctx):
-        """
-        📌 Reply to a message to detect game interest and direct users to the correct LFG channel.
-        If a game role is detected, the bot will tag the role and provide an LFG guide.
-        If used in the wrong channel, the user is informed and directed to grab the game-specific role from <id:customize>.
-        """
         if not await self.delete_and_check(ctx):
             return
 
@@ -130,13 +164,13 @@ class Wiki(commands.Cog):
             try:
                 replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
                 content = replied.content.lower()
-                # First pass: check each word after stripping punctuation.
+                # First pass: check each word after stripping punctuation
                 for word in content.split():
                     cleaned = word.strip(string.punctuation)
                     if cleaned in self.alias_to_role:
                         role_mention = self.alias_to_role[cleaned]
                         break
-                # Second pass: regex search for any alias as a whole word.
+                # Second pass: regex search for any alias as a whole word
                 if not role_mention:
                     for alias, role_name in self.alias_to_role.items():
                         pattern = r'\b' + re.escape(alias) + r'\b'
@@ -146,60 +180,30 @@ class Wiki(commands.Cog):
             except Exception:
                 pass
 
-        if role_mention is None:
-            await self.send_reply(ctx, "No game alias detected in the referenced message.")
-            return
-
-        # Get the role object.
-        role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
-        if role_obj:
-            # Default correct-channel mention: ping both role and user.
-            mention_text = f"{role_obj.mention} {ctx.author.mention}\n"
-            expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
-            if expected_channel_id:
-                if ctx.channel.id == expected_channel_id:
-                    # Correct channel: send message in current channel.
-                    output = (
-                        f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                        "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
-                    )
-                    await self.send_reply(ctx, output)
-                else:
-                    # Wrong channel: inform the user in current channel.
-                    extra_text = (
-                        f"Detected game role: **{role_obj.name}**. This is not the correct channel. "
-                        f"Please grab the game-specific role from {self.channels_and_roles_link}.\n"
-                    )
-                    await self.send_reply(ctx, extra_text)
-                    # If the user doesn't have the role, assign it.
-                    if role_obj not in ctx.author.roles:
-                        try:
-                            await ctx.author.add_roles(role_obj, reason="User redirected by -lfg command")
-                        except Exception as e:
-                            print(f"Failed to add role to user: {e}")
-                    # Now, in the correct channel, send the LFG message.
+        # If a pingable game role was found, prepare the mention.
+        if role_mention:
+            role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
+            if role_obj:
+                mention_text = f"{role_obj.mention}\n"
+                # Use the new mapping to get the designated channel ID.
+                expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
+                if expected_channel_id:
                     target_channel = ctx.guild.get_channel(expected_channel_id)
-                    if target_channel:
-                        output = (
-                            f"{role_obj.mention} {ctx.author.mention}\n"
-                            "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                            "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+                    if target_channel and ctx.channel.id != target_channel.id:
+                        extra_text = (
+                            f"\nYou would also have a better chance finding players in {target_channel.mention}, "
+                            "and if this channel is showing as no access, grab the game-specific role from Channels & Roles!"
                         )
-                        try:
-                            await target_channel.send(output)
-                        except Exception as e:
-                            print(f"Failed to send message in target channel: {e}")
-                    else:
-                        await self.send_reply(ctx, "Error: Designated channel not found.")
             else:
-                # If no designated channel is mapped, proceed as usual.
-                output = (
-                    f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                    "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
-                )
-                await self.send_reply(ctx, output)
-        else:
-            await self.send_reply(ctx, f"Could not find role: {role_mention}.")
+                mention_text = f"@{role_mention}\n"
+
+        # Construct the base output.
+        output = (
+            f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+            "📌 [LFG Guide](https://wiki.mulveycreations.com/discord/lfg)"
+        ) + extra_text
+
+        await self.send_reply(ctx, output)
 
     @commands.command()
     async def host(self, ctx):
@@ -275,7 +279,8 @@ class Wiki(commands.Cog):
     @commands.command()
     async def fafo(self, ctx):
         """
-        ⚠️ Under development. Posts a warning message and a 'FAFO' button. Users who click it are timed out for 5 minutes.
+        ⚠️ Under development. Posts a warning message and a 'FAFO' button.
+        Users who click it are timed out for 5 minutes.
         """
         if not await self.delete_and_check(ctx):
             return
@@ -287,6 +292,5 @@ class Wiki(commands.Cog):
         msg = await self.send_reply(ctx, warning_text, view=view)
         view.message = msg
 
-# Required for Redbot compatibility
 async def setup(bot):
     await bot.add_cog(Wiki(bot))

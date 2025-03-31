@@ -10,7 +10,7 @@ class FafoView(discord.ui.View):
         self.message = None  # Stores the message this view is attached to
 
     async def on_timeout(self):
-        # When the view times out (after 3 minutes), attempt to delete the message containing it.
+        # When the view times out, attempt to delete the message containing it.
         if self.message:
             try:
                 await self.message.delete()
@@ -21,14 +21,14 @@ class FafoView(discord.ui.View):
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         """
         (Beta) Button callback for FAFO.
-        Attempts to timeout the clicking user for 5 minutes using the Member.timeout() method.
-        If the user is not found (fallback), sends an appropriate message.
+        Attempts to timeout the clicking user for 5 minutes using Member.timeout().
+        If the member isn't found, or if permissions/HTTP errors occur, an appropriate message is sent.
         """
         await interaction.response.defer(ephemeral=True)
         try:
             duration = timedelta(minutes=5)
             until_time = discord.utils.utcnow() + duration
-            # Ensure interaction.user is a Member; fallback if not.
+            # Ensure interaction.user is a Member object; fallback if not found.
             member = interaction.guild.get_member(interaction.user.id)
             if member is None:
                 await interaction.followup.send("Member not found.", ephemeral=True)
@@ -36,14 +36,16 @@ class FafoView(discord.ui.View):
             await member.timeout(until=until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
         except discord.Forbidden:
-            await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)
+            await interaction.followup.send(
+                "I don't have permission to timeout you. Please check my role position and permissions.",
+                ephemeral=True)
         except discord.HTTPException as e:
             await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
 
 class Wikibeta(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Allowed roles for running these commands.
+        # Allowed roles for invoking beta commands.
         self.allowed_roles = [
             "Game Server Team", "Advisors", "Wardens", "The Brute Squad", "Sentinels",
             "Community Manager - Helldivers", "Community Manager - Book Club",
@@ -84,7 +86,7 @@ class Wikibeta(commands.Cog):
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
         }
-        # Mapping from role names to designated channel IDs (use the actual channel IDs)
+        # Mapping from role names to designated channel IDs (use actual channel IDs).
         self.role_name_to_channel_id = {
             "Escape from Tarkov": 1325558852120350863,
             "Hell Let Loose": 1325565264246603859,
@@ -115,7 +117,7 @@ class Wikibeta(commands.Cog):
             "Fortnite": 1316416079333167149,
             "Forza": 1328799912892170260
         }
-        # Use Discord's internal format for the Channels & Roles link.
+        # Use Discord's internal format for the Channels & Roles clickable link.
         self.channels_and_roles_link = "<id:customize>"
 
     async def delete_and_check(self, ctx):
@@ -151,7 +153,7 @@ class Wikibeta(commands.Cog):
         """
         📌 (Beta) Reply to a message to detect game interest and direct users to the correct LFG channel.
         If a game role is detected, the bot will tag the role and provide an LFG guide.
-        If used in the wrong channel, the user is informed to grab the game-specific role from <id:customize>.
+        If used in the wrong channel, the user is informed and directed to grab the game-specific role from <id:customize>.
         """
         if not await self.delete_and_check(ctx):
             return
@@ -188,7 +190,7 @@ class Wikibeta(commands.Cog):
         # Get the role object.
         role_obj = discord.utils.get(ctx.guild.roles, name=role_mention)
         if role_obj:
-            # Default correct-channel: ping both role and user.
+            # Default: ping both the role and the user.
             mention_text = f"{role_obj.mention} {ctx.author.mention}\n"
             expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
             if expected_channel_id:

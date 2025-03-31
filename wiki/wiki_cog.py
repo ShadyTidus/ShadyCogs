@@ -4,39 +4,64 @@ import re
 from datetime import datetime, timedelta
 from redbot.core import commands
 
+import discord
+from datetime import timedelta
+
 class FafoView(discord.ui.View):
     def __init__(self, timeout: int = 180):
         super().__init__(timeout=timeout)
         self.message = None  # Will store the message this view is attached to
 
     async def on_timeout(self):
-        # When the view times out, attempt to delete the message that contains it.
+        # When the view times out, attempt to delete the message it was attached to
         if self.message:
             try:
                 await self.message.delete()
             except Exception as e:
-                print(f"Failed to delete message on timeout: {e}")
+                print(f"Failed to delete FAFO message on timeout: {e}")
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         """
         Button callback to timeout the user for 5 minutes.
-        Uses the Member.timeout() method to enforce the timeout.
+        Logs results to the bot owner's DM (or specified user).
         """
         await interaction.response.defer(ephemeral=True)
+        log_lines = []
+        log_user_id = 272585510134743040  # Your user ID for logging
+
         try:
             duration = timedelta(minutes=5)
             until_time = discord.utils.utcnow() + duration
+
             member = interaction.guild.get_member(interaction.user.id)
+            log_lines.append(f"🔍 Clicked by: {interaction.user} (ID: {interaction.user.id})")
+            log_lines.append(f"🕵️‍♂️ Member resolved: {'Yes' if member else 'No'}")
+
             if member is None:
                 await interaction.followup.send("Member not found.", ephemeral=True)
+                log_lines.append("❌ Failed: Member not found in guild.")
                 return
+
             await member.timeout(until=until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
+            log_lines.append("✅ Success: Timeout applied.")
         except discord.Forbidden:
             await interaction.followup.send("I don't have permission to timeout you. Please check my role position and permissions.", ephemeral=True)
+            log_lines.append("⛔ Forbidden: Insufficient permissions.")
         except discord.HTTPException as e:
             await interaction.followup.send(f"An error occurred while attempting to timeout: {e}", ephemeral=True)
+            log_lines.append(f"⚠️ HTTPException: {str(e)}")
+        except Exception as e:
+            await interaction.followup.send("An unexpected error occurred.", ephemeral=True)
+            log_lines.append(f"💥 Unexpected Error: {str(e)}")
+
+        # Send log to designated user (you)
+        try:
+            owner = await interaction.client.fetch_user(log_user_id)
+            await owner.send("📋 **FAFO Debug Log**\n" + "\n".join(log_lines))
+        except Exception as e:
+            print(f"Failed to send debug log to user {log_user_id}: {e}")
 
 class Wiki(commands.Cog):
     def __init__(self, bot):

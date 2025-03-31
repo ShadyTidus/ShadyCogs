@@ -342,8 +342,9 @@ class Wiki(commands.Cog):
         if not await self.delete_and_check(ctx):
             return
         warning_text = (
-            "Warning: If you cannot abide by the rules from previous responses, "
-            "Click Below To FAFO"
+            "__**⚠️ WARNING:**__\n" \
+            "If you cannot abide by the rules from previous responses,\n"
+            "**Click Below To FAFO**"
         )
         view = FafoView()
         msg = await self.send_reply(ctx, warning_text, view=view)

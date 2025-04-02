@@ -22,7 +22,7 @@ class FafoView(discord.ui.View):
     async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         """
         Button callback to timeout the user for 5 minutes.
-        Uses member.edit() for compatibility.
+        Uses member.timeout() for compatibility.
         """
         await interaction.response.defer(ephemeral=True)
         try:
@@ -34,8 +34,7 @@ class FafoView(discord.ui.View):
                 await interaction.followup.send("Member not found.", ephemeral=True)
                 return
 
-            # Corrected keyword
-            await member.edit(timed_out_until=until_time, reason="FAFO button clicked.")
+            await member.timeout(until=until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
 
         except discord.Forbidden:

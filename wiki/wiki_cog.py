@@ -5,6 +5,9 @@ import traceback
 from discord.utils import utcnow
 from datetime import datetime, timedelta
 from redbot.core import commands
+import logging
+
+log = logging.getLogger("red.Wiki")
 
 class FafoView(discord.ui.View):
     def __init__(self, timeout: int = 180):
@@ -20,12 +23,8 @@ class FafoView(discord.ui.View):
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
     async def fafo_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """
-        Button callback to timeout the user for 5 minutes.
-        Uses member.timeout() for compatibility.
-        """
-        await interaction.response.defer(ephemeral=True)
         try:
+            await interaction.response.defer(ephemeral=True)
             duration = timedelta(minutes=5)
             until_time = utcnow() + duration
             member = interaction.guild.get_member(interaction.user.id)
@@ -43,11 +42,11 @@ class FafoView(discord.ui.View):
                 ephemeral=True
             )
         except discord.HTTPException as http_err:
-            await interaction.followup.send(f"An error occurred while attempting to timeout: {http_err}", ephemeral=True)
-            traceback.print_exception(type(http_err), http_err, http_err.__traceback__)
+            log.exception("HTTP error during FAFO timeout.")
+            await interaction.followup.send(f"An error occurred: {http_err}", ephemeral=True)
         except Exception as e:
+            log.exception("Unexpected error occurred in FAFO button.")
             await interaction.followup.send("An unexpected error occurred while processing FAFO.", ephemeral=True)
-            traceback.print_exception(type(e), e, e.__traceback__)
 
 class Wiki(commands.Cog):
     def __init__(self, bot):
@@ -93,36 +92,107 @@ class Wiki(commands.Cog):
             "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
             "wot": "World of Tanks", "wow": "World of Warcraft"
         }
-        # Mapping from role names to designated channel IDs (using actual channel IDs)
+
         self.role_name_to_channel_id = {
             "Escape from Tarkov": 1325558852120350863,
-            "Hell Let Loose": 1325565264246603859,
-            "Rainbow Six": 1325558740086161428,
-            "Ready Or Not": 1325558905907970199,
-            "War Thunder": 1325565211884781588,
-            "Magic: The Gathering": 1065493485714686003,
-            "Pokémon": 1065621451417337956,
             "Table-Top Simulator": 1217529197594021889,
             "Warhammer 40k": 1217529421863456928,
-            "Diablo": 1123047882669436958,
-            "Path of Exile": 1205575608231530506,
-            "Path of Exile 2": 1310386526093578251,
             "Elden Ring": 1315179628993839155,
-            "Baldur's Gate 3": 1315180707685073028,
-            "Monster Hunter": 1315178720364859402,
+            "Baldur's Gate 3": 1315180707685073028, 
             "Final Fantasy": 1328766811671498833,
             "Assetto Corsa": 1315312906178396180,
             "League of Legends": 1308589894268092476,
             "Dota 2": 1308590005911814224,
             "Smite": 1308590072689590374,
-            "Marvel Rivals": 1318214983670042707,
-            "Overwatch": 1318215028494831697,
-            "Phasmophobia": 1328029591062839376,
-            "R.E.P.O": 1351009382154109018,
             "Wild Rift": 1316230560946982942,
             "iRacing": 1328799846341148672,
-            "Fortnite": 1316416079333167149,
-            "Forza": 1328799912892170260
+            "Animal Crossing": 1356280246587883551, #Animal Crossing
+            "Age of Empires ": 1021071580375302144, #RTS
+            "Among Us": 1187881125813698611, #Party
+            "Apex Legends": 1021071765994209451, #Battle Royale
+            "Back 4 Blood": 1147172129658372239, #FPS 
+            "Battlefield": 1147172129658372239,  #FPS
+            "Baldur's Gate": 1315180707685073028, #Baldur's Gate
+            "Call of Duty": 1067440688737820683, #COD-General 
+            "Content Warning": 1187881125813698611, #Party
+            "DayZ": 934224139181502524, #Survival-Craft
+            "Dead By Daylight": 934226974468112434, #Horror
+            "Deep Rock Galactic": 1147172129658372239, #FPS
+            "Demonologist": 934226974468112434, #Horror
+            "Destiny 2": 1108432769505308702, #The Tower
+            "Diablo": 1123047882669436958, #All Diablo Chat
+            "Disney Dreamlight Valley": 1354469688582602993, #Dreamlight channel
+            "Dungeons&Dragons": 933541913167024189, #The Tavern
+            "D&D Biweekly Players": 1064988631305040063, #Adventurers Guild
+            "Dragon Age": 1215035228364603552, #RPG Games
+            "Dying Light": 934226974468112434, #Horror
+            "Elden Ring": 1315179628993839155, #Elden Ring
+            "Elder Scrolls": 1215035228364603552, #RPG Games
+            "Elite Dangerous": 1021072931947819049, #Space & Flight Games
+            "Enshrouded": 934224139181502524, #Survival-Craft
+            "Escape from Tarkov": 1325558852120350863, #Escape From Tarkov
+            "Fallout": 1215035228364603552, #RPG Games
+            "Farming sim": 1318215079736381460, #Farming Sim
+            "Final Fantasy XIV": 1328766811671498833, #Final Fantasy
+            "The First Descendant": 1147172129658372239, #FPS
+            "FiveM": 1215035228364603552, #RPG Games
+            "For Honor": 1021075894120480818, #Fighting Games
+            "Fortnite": 1316416079333167149, #Fortnite General
+            "Forza": 1328799912892170260, #Forza
+            "Genshin Impact": 1215035228364603552, #RPG Games
+            "Ghost Recon": 1021075269886414849, #third-person shooter
+            "Goose Goose Duck": 1187881125813698611, #Party
+            "Grand Theft Auto V": 1147172129658372239, #FPS
+            "Halo": 1147172129658372239, #FPS
+            "Hell Let Loose": 1325565264246603859, #Hell Let Loose
+            "Helldivers 2": 1215290878973972481, # Helldivers
+            "Hogwarts Legacy": 1215035228364603552, #RPG Games (I'm so lost)
+            "Jackbox": 1187881125813698611, #Party
+            "League of Legends": 1308589894268092476, #League of Legends
+            "Lethal Company": 934226974468112434, #Horror
+            "Lockdown Protocol": 1187881125813698611, #Party
+            "Lost Ark": 1215035228364603552, #RPG Games (Maybe? Kind of?)
+            "Magic: The Gathering": 1065493485714686003, #Magic channel
+            "Mario Kart": 1021073264493211739, #Racing Games
+            "Marvel Rivals": 1318214983670042707,
+            "Minecraft": 1109614662594613298, #Minecraft General
+            "Monster Hunter": 1315178720364859402, #Monster Hunter
+            "Mortal Kombat": 1021075894120480818, #Fighting Games
+            "No Man's Sky": 1021072931947819049, #Space & Flight Games
+            "Once Human": 1021075269886414849, #third-person shooter
+            "Overwatch": 1318215028494831697, #Overwatch?
+            "Palia": 1318220176981889187, #Palia
+            "Palworld": 934224139181502524, #Survival-Craft
+            "Path of Exile": 1205575608231530506, #PoE
+            "Path of Exile 2": 1310386526093578251, #PoE2
+            "Pavlov": 933461190582091887, #VR
+            "Player Unknown Battlegrounds": 1021071765994209451, #Battle Royale
+            "Pokémon": 1065621451417337956,
+            "Raft": 934224139181502524, #Survival-Craft
+            "Rainbow Six": 1325558740086161428, #Rainbow Six
+            "Ready Or Not": 1325558905907970199, #RoN
+            "Red Dead: Online": 1215035228364603552, #RPG Games
+            "R.E.P.O": 1351009382154109018, #Repo
+            "Rocket League": 1021076388406632468, #Sports
+            "RuneScape": 1215035228364603552, #RPG Games
+            "Rust": 934224139181502524, #Survival-Craft
+            "Satisfactory": 934224139181502524, #Survival-Craft (Cozy games has been argued)
+            "Sea of Thieves": 1215035228364603552, #RPG Games (This is the biggest shot in the dark)
+            "The Sims": 1356280039603437749, #Cozy General
+            "Space Marines 2": 1021075269886414849, #third-person shooter
+            "Star Citizen": 1021072931947819049, #Space & Flight Games
+            "Stardew Valley": 1356280039603437749, #Cozy General
+            "Starfield": 1215035228364603552, #RPG Games
+            "Super Smash Bros.": 1021075894120480818, #Fighting Games
+            "The Division": 1021075269886414849, #third-person shooter
+            "Tiny Tina's Wonderlands": 1147172129658372239, #FPS
+            "Truck Simulator": 1192812670592749710, #Simulation Games
+            "Valheim": 934224139181502524, #Survival-Craft 
+            "Valorant": 1147172129658372239, #FPS
+            "Warframe": 1021075269886414849, #third-person shooter
+            "War Thunder": 1325565211884781588,
+            "World of Tanks": 1192812670592749710, #Simulation Games
+            "World of Warcraft": 1067440649479131187 #Wow General
         }
         # Use Discord's internal format for the Channels & Roles link.
         self.channels_and_roles_link = "<id:customize>"

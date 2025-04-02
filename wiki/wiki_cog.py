@@ -19,7 +19,7 @@ class FafoView(discord.ui.View):
                 print(f"Failed to delete FAFO message on timeout: {e}")
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
-    async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def fafo_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """
         Button callback to timeout the user for 5 minutes.
         Uses member.timeout() for compatibility.

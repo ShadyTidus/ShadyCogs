@@ -9,23 +9,17 @@ from redbot.core import commands
 class FafoView(discord.ui.View):
     def __init__(self, timeout: int = 180):
         super().__init__(timeout=timeout)
-        self.message = None  # Will store the message this view is attached to
+        self.message = None
 
     async def on_timeout(self):
-        # When the view times out, attempt to delete the message it was attached to
         if self.message:
             try:
                 await self.message.delete()
             except Exception as e:
                 print(f"Failed to delete FAFO message on timeout: {e}")
 
-    @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
-    async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        """
-        Button callback to timeout the user for 5 minutes.
-        Uses member.edit() for compatibility.
-        Sends logs via DM and prints full tracebacks if errors occur.
-        """
+    @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger, custom_id="fafo_button")
+    async def fafo_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         try:
             duration = timedelta(minutes=5)
@@ -36,12 +30,11 @@ class FafoView(discord.ui.View):
                 await interaction.followup.send("Member not found.", ephemeral=True)
                 return
 
-            # Timeout the member
             await member.edit(timeout=until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
 
-            # Send DM log to the owner
-            owner_id = 272585510134743040  # ShadyTidus
+            # DM to owner
+            owner_id = 272585510134743040
             try:
                 owner = interaction.client.get_user(owner_id) or await interaction.client.fetch_user(owner_id)
                 timestamp = int(until_time.timestamp())
@@ -67,8 +60,7 @@ class FafoView(discord.ui.View):
             await interaction.followup.send("An unexpected error occurred while processing FAFO.", ephemeral=True)
             traceback.print_exception(type(e), e, e.__traceback__)
             try:
-                # Try DMing full traceback to owner
-                owner = interaction.client.get_user(272585510134743040) or await interaction.client.fetch_user(272585510134743040)
+                owner = interaction.client.get_user(owner_id) or await interaction.client.fetch_user(owner_id)
                 tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
                 await owner.send(f"**Unhandled FAFO Exception:**\n```py\n{tb}```")
             except Exception as dm_fallback:
@@ -357,13 +349,13 @@ class Wiki(commands.Cog):
     @commands.command()
     async def fafo(self, ctx):
         """
-        ⚠️ Under development. Posts a warning message and a 'FAFO' button.
+        ⚠️ Posts a warning message and a 'FAFO' button.
         Users who click it are timed out for 5 minutes.
         """
         if not await self.delete_and_check(ctx):
             return
         warning_text = (
-            "__**⚠️ WARNING:**__\n" \
+            "__**⚠️ WARNING:**__\n"
             "If you cannot abide by the rules from previous responses,\n"
             "**Click Below To FAFO**"
         )

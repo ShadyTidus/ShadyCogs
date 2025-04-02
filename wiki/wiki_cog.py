@@ -19,61 +19,61 @@ class FafoView(discord.ui.View):
             except Exception as e:
                 print(f"Failed to delete FAFO message on timeout: {e}")
 
-@discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
-async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-    """
-    Button callback to timeout the user for 5 minutes.
-    Uses member.edit() for compatibility.
-    Sends logs via DM and prints full tracebacks if errors occur.
-    """
-    await interaction.response.defer(ephemeral=True)
-    try:
-        duration = timedelta(minutes=5)
-        until_time = utcnow() + duration
-        member = interaction.guild.get_member(interaction.user.id)
-
-        if member is None:
-            await interaction.followup.send("Member not found.", ephemeral=True)
-            return
-
-        # Timeout the member
-        await member.edit(timeout=until_time, reason="FAFO button clicked.")
-        await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
-
-        # Send DM log to the owner
-        owner_id = 272585510134743040  # ShadyTidus
+    @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
+    async def fafo_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        """
+        Button callback to timeout the user for 5 minutes.
+        Uses member.edit() for compatibility.
+        Sends logs via DM and prints full tracebacks if errors occur.
+        """
+        await interaction.response.defer(ephemeral=True)
         try:
-            owner = interaction.client.get_user(owner_id) or await interaction.client.fetch_user(owner_id)
-            timestamp = int(until_time.timestamp())
-            log_msg = (
-                f"🚨 **FAFO Click Logged**\n"
-                f"User `{member}` (`{member.id}`) clicked the FAFO button in server **{interaction.guild.name}**.\n"
-                f"They were timed out until <t:{timestamp}:F>."
+            duration = timedelta(minutes=5)
+            until_time = utcnow() + duration
+            member = interaction.guild.get_member(interaction.user.id)
+
+            if member is None:
+                await interaction.followup.send("Member not found.", ephemeral=True)
+                return
+
+            # Timeout the member
+            await member.edit(timeout=until_time, reason="FAFO button clicked.")
+            await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
+
+            # Send DM log to the owner
+            owner_id = 272585510134743040  # ShadyTidus
+            try:
+                owner = interaction.client.get_user(owner_id) or await interaction.client.fetch_user(owner_id)
+                timestamp = int(until_time.timestamp())
+                log_msg = (
+                    f"🚨 **FAFO Click Logged**\n"
+                    f"User `{member}` (`{member.id}`) clicked the FAFO button in server **{interaction.guild.name}**.\n"
+                    f"They were timed out until <t:{timestamp}:F>."
+                )
+                await owner.send(log_msg)
+            except Exception as dm_err:
+                print("Failed to DM owner:")
+                traceback.print_exception(type(dm_err), dm_err, dm_err.__traceback__)
+
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I don't have permission to timeout you. Please check my role position and permissions.",
+                ephemeral=True
             )
-            await owner.send(log_msg)
-        except Exception as dm_err:
-            print("Failed to DM owner:")
-            traceback.print_exception(type(dm_err), dm_err, dm_err.__traceback__)
-
-    except discord.Forbidden:
-        await interaction.followup.send(
-            "I don't have permission to timeout you. Please check my role position and permissions.",
-            ephemeral=True
-        )
-    except discord.HTTPException as http_err:
-        await interaction.followup.send(f"An error occurred while attempting to timeout: {http_err}", ephemeral=True)
-        traceback.print_exception(type(http_err), http_err, http_err.__traceback__)
-    except Exception as e:
-        await interaction.followup.send("An unexpected error occurred while processing FAFO.", ephemeral=True)
-        traceback.print_exception(type(e), e, e.__traceback__)
-        try:
-            # Try DMing full traceback to owner
-            owner = interaction.client.get_user(272585510134743040) or await interaction.client.fetch_user(272585510134743040)
-            tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-            await owner.send(f"**Unhandled FAFO Exception:**\n```py\n{tb}```")
-        except Exception as dm_fallback:
-            print("Also failed to DM traceback:")
-            traceback.print_exception(type(dm_fallback), dm_fallback, dm_fallback.__traceback__)
+        except discord.HTTPException as http_err:
+            await interaction.followup.send(f"An error occurred while attempting to timeout: {http_err}", ephemeral=True)
+            traceback.print_exception(type(http_err), http_err, http_err.__traceback__)
+        except Exception as e:
+            await interaction.followup.send("An unexpected error occurred while processing FAFO.", ephemeral=True)
+            traceback.print_exception(type(e), e, e.__traceback__)
+            try:
+                # Try DMing full traceback to owner
+                owner = interaction.client.get_user(272585510134743040) or await interaction.client.fetch_user(272585510134743040)
+                tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+                await owner.send(f"**Unhandled FAFO Exception:**\n```py\n{tb}```")
+            except Exception as dm_fallback:
+                print("Also failed to DM traceback:")
+                traceback.print_exception(type(dm_fallback), dm_fallback, dm_fallback.__traceback__)
 
 class Wiki(commands.Cog):
     def __init__(self, bot):

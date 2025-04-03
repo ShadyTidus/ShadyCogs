@@ -33,7 +33,7 @@ class FafoView(discord.ui.View):
                 await interaction.followup.send("Member not found.", ephemeral=True)
                 return
 
-            await member.timeout(until=until_time, reason="FAFO button clicked.")
+            await member.timeout(until_time, reason="FAFO button clicked.")
             await interaction.followup.send("You have been timed out for 5 minutes.", ephemeral=True)
 
         except discord.Forbidden:

@@ -19,7 +19,7 @@ class FafoView(discord.ui.View):
             try:
                 await self.message.delete()
             except Exception as e:
-                print(f"Failed to delete FAFO message on timeout: {e}")
+                log.warning(f"Failed to delete FAFO message on timeout: {e}")
 
     @discord.ui.button(label="FAFO", style=discord.ButtonStyle.danger)
     async def fafo_button(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -84,7 +84,7 @@ class Wiki(commands.Cog):
             "palia": "Palia", "palworld": "Palworld", "poe": "Path of Exile", "pavlov": "Pavlov",
             "phasmophobia": "Phasmophobia", "pubg": "Player Unknown Battlegrounds",
             "pokemon": "Pokémon", "raft": "Raft", "rainbow": "Rainbow Six", "r6": "Rainbow Six",
-            "ron": "Ready Or Not", "rdo": "Red Dead: Online", "repo": "R.E.P.O", "rl": "Rocket League",
+            "ron": "Ready Or Not", "readyornot": "Ready Or Not", "rdo": "Red Dead: Online", "repo": "R.E.P.O", "rl": "Rocket League",
             "runescape": "RuneScape", "rust": "Rust", "satisfactory": "Satisfactory",
             "sot": "Sea of Thieves", "sims": "The Sims", "sm2": "Space Marines 2", "sc": "Star Citizen",
             "stardew": "Stardew Valley", "starfield": "Starfield", "ssb": "Super Smash Bros.",
@@ -251,7 +251,7 @@ class Wiki(commands.Cog):
         if ctx.message.reference:
             try:
                 replied = await ctx.channel.fetch_message(ctx.message.reference.message_id)
-                content = replied.content.lower()
+                content = replied.content.lower().replace(" ", "")
                 replied_user = replied.author
                 reply_target = replied
 

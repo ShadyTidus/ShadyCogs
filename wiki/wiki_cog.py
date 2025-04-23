@@ -415,5 +415,18 @@ class Wiki(commands.Cog):
         msg = await self.send_reply(ctx, warning_text, view=view)
         view.message = msg
 
+    @commands.command()
+    async def servers(self, ctx):
+        """
+        🖥️ Shows the current list of PA-hosted servers via the wiki.
+        """
+        if not await self.delete_and_check(ctx):
+            return
+        output = (
+            "Want to see which servers PA is currently hosting?\n"
+            "🖥️ [Check the Server List](https://wiki.parentsthatga.me/en/servers)"
+        )
+        await self.send_reply(ctx, output)
+
 async def setup(bot):
     await bot.add_cog(Wiki(bot))

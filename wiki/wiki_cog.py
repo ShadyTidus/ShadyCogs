@@ -416,7 +416,7 @@ class Wiki(commands.Cog):
         view.message = msg
 
     @commands.command()
-    async def servers(self, ctx):
+    async def hosted(self, ctx):
         """
         🖥️ Shows the current list of PA-hosted servers via the wiki.
         """

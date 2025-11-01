@@ -1,0 +1,23 @@
+{
+  "_comment": "List of role names that are authorized to use wiki commands",
+  "authorized_roles": [
+    "Game Server Team",
+    "Advisors",
+    "Wardens",
+    "The Brute Squad",
+    "Sentinels",
+    "Community Manager - Helldivers",
+    "Community Manager - Book Club",
+    "Community Manager - Call of Duty",
+    "Community Manager - D&D",
+    "Community Manager - World of Warcraft",
+    "Community Manager - Minecraft",
+    "Skye",
+    "Librarian Raccoon",
+    "Zara",
+    "BadgerSnacks",
+    "Donnie",
+    "Captain Sawbones",
+    "Captain Soulo"
+  ]
+}

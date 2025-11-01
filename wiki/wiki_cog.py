@@ -2,9 +2,14 @@ import discord
 import string
 import re
 import traceback
+import json
+import os
+from pathlib import Path
 from discord.utils import utcnow
 from datetime import datetime, timedelta
-from redbot.core import commands
+from redbot.core import commands, Config
+from discord import app_commands
+from typing import Optional
 import logging
 
 log = logging.getLogger("red.Wiki")
@@ -51,157 +56,64 @@ class FafoView(discord.ui.View):
 class Wiki(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Allowed roles that may invoke these commands
-        self.allowed_roles = [
-            "Game Server Team", "Advisors", "Wardens", "The Brute Squad", "Sentinels",
-            "Community Manager - Helldivers", "Community Manager - Book Club",
-            "Community Manager - Call of Duty", "Community Manager - D&D",
-            "Community Manager - World of Warcraft", "Community Manager - Minecraft",
-            "Skye", "Librarian Raccoon", "Zara", "BadgerSnacks", "Donnie",
-            "Captain Sawbones", "Captain Soulo"
-        ]
-        # Maps common game aliases (all lowercase) to the exact role name.
-        self.alias_to_role = {
-            "7dtd": "7 Days To Die", "ark": "ARK", "aoe": "Age of Empires", "amongus": "Among Us",
-            "acnh": "Animal Crossing", "apex": "Apex Legends", "assetto": "Assetto Corsa",
-            "b4b": "Back 4 Blood", "bf": "Battlefield", "bg3": "Baldur's Gate 3", "cod": "Call of Duty",
-            "cw": "Content Warning", "dayz": "DayZ", "dbd": "Dead by Daylight", "drg": "Deep Rock Galactic",
-            "demo": "Demonologist", "d2": "Destiny 2", "diablo": "Diablo", "dirt": "DiRT",
-            "ddv": "Disney Dreamlight Valley", "dnd": "Dungeons&Dragons", "d&d": "Dungeons&Dragons",
-            "dungeons": "Dungeons&Dragons", "biweekly": "D&D Biweekly Players", "dragonage": "Dragon Age",
-            "dyinglight": "Dying Light", "eldenring": "Elden Ring", "eso": "Elder Scrolls",
-            "elite": "Elite Dangerous", "enshrouded": "Enshrouded", "eft": "Escape from Tarkov",
-            "tarkov": "Escape from Tarkov", "fallout": "Fallout", "farmingsim": "Farming sim",
-            "ffxiv": "Final Fantasy XIV", "descendant": "The First Descendant", "fivem": "FiveM",
-            "honor": "For Honor", "fn": "Fortnite", "forza": "Forza", "genshin": "Genshin Impact",
-            "recon": "Ghost Recon", "goose": "Goose Goose Duck", "gta": "Grand Theft Auto V",
-            "halo": "Halo", "hll": "Hell Let Loose", "helldivers": "Helldivers 2",
-            "hogwarts": "Hogwarts Legacy", "jackbox": "Jackbox", "lol": "League of Legends",
-            "lethal": "Lethal Company", "lockdown": "Lockdown Protocol", "lostark": "Lost Ark",
-            "mtg": "Magic: The Gathering", "mariokart": "Mario Kart", "marvel": "Marvel Rivals",
-            "mc": "Minecraft", "monsterhunter": "Monster Hunter", "mk": "Mortal Kombat",
-            "nms": "No Man's Sky", "oncehuman": "Once Human", "ow": "Overwatch", "ow2": "Overwatch",
-            "palia": "Palia", "palworld": "Palworld", "poe": "Path of Exile", "pavlov": "Pavlov",
-            "phasmophobia": "Phasmophobia", "pubg": "Player Unknown Battlegrounds",
-            "pokemon": "Pokémon", "raft": "Raft", "rainbow": "Rainbow Six", "r6": "Rainbow Six",
-            "ron": "Ready Or Not", "readyornot": "Ready Or Not", "rdo": "Red Dead: Online", "repo": "R.E.P.O", "rl": "Rocket League",
-            "runescape": "RuneScape", "rust": "Rust", "satisfactory": "Satisfactory",
-            "sot": "Sea of Thieves", "sims": "The Sims", "sm2": "Space Marines 2", "sc": "Star Citizen",
-            "stardew": "Stardew Valley", "starfield": "Starfield", "ssb": "Super Smash Bros.",
-            "division": "The Division", "tinytina": "Tiny Tina's Wonderlands", "trucksim": "Truck Simulator",
-            "valheim": "Valheim", "val": "Valorant", "warframe": "Warframe", "warthunder": "War Thunder",
-            "wot": "World of Tanks", "wow": "World of Warcraft"
-        }
+        self.config_dir = Path(__file__).parent / "config"
 
-        self.role_name_to_channel_id = {
-            "Escape from Tarkov": 1325558852120350863,
-            "Table-Top Simulator": 1217529197594021889,
-            "Warhammer 40k": 1217529421863456928,
-            "Elden Ring": 1315179628993839155,
-            "Baldur's Gate 3": 1315180707685073028, 
-            "Final Fantasy": 1328766811671498833,
-            "Assetto Corsa": 1315312906178396180,
-            "League of Legends": 1308589894268092476,
-            "Dota 2": 1308590005911814224,
-            "Smite": 1308590072689590374,
-            "Wild Rift": 1316230560946982942,
-            "iRacing": 1328799846341148672,
-            "Animal Crossing": 1356280246587883551, #Animal Crossing
-            "Age of Empires ": 1021071580375302144, #RTS
-            "Among Us": 1187881125813698611, #Party
-            "Apex Legends": 1021071765994209451, #Battle Royale
-            "Back 4 Blood": 1147172129658372239, #FPS 
-            "Battlefield": 1147172129658372239,  #FPS
-            "Baldur's Gate": 1315180707685073028, #Baldur's Gate
-            "Call of Duty": 1067440688737820683, #COD-General 
-            "Content Warning": 1187881125813698611, #Party
-            "DayZ": 934224139181502524, #Survival-Craft
-            "Dead By Daylight": 934226974468112434, #Horror
-            "Deep Rock Galactic": 1147172129658372239, #FPS
-            "Demonologist": 934226974468112434, #Horror
-            "Destiny 2": 1108432769505308702, #The Tower
-            "Diablo": 1123047882669436958, #All Diablo Chat
-            "Disney Dreamlight Valley": 1354469688582602993, #Dreamlight channel
-            "Dungeons&Dragons": 933541913167024189, #The Tavern
-            "D&D Biweekly Players": 1064988631305040063, #Adventurers Guild
-            "Dragon Age": 1215035228364603552, #RPG Games
-            "Dying Light": 934226974468112434, #Horror
-            "Elden Ring": 1315179628993839155, #Elden Ring
-            "Elder Scrolls": 1215035228364603552, #RPG Games
-            "Elite Dangerous": 1021072931947819049, #Space & Flight Games
-            "Enshrouded": 934224139181502524, #Survival-Craft
-            "Escape from Tarkov": 1325558852120350863, #Escape From Tarkov
-            "Fallout": 1215035228364603552, #RPG Games
-            "Farming sim": 1318215079736381460, #Farming Sim
-            "Final Fantasy XIV": 1328766811671498833, #Final Fantasy
-            "The First Descendant": 1147172129658372239, #FPS
-            "FiveM": 1215035228364603552, #RPG Games
-            "For Honor": 1021075894120480818, #Fighting Games
-            "Fortnite": 1316416079333167149, #Fortnite General
-            "Forza": 1328799912892170260, #Forza
-            "Genshin Impact": 1215035228364603552, #RPG Games
-            "Ghost Recon": 1021075269886414849, #third-person shooter
-            "Goose Goose Duck": 1187881125813698611, #Party
-            "Grand Theft Auto V": 1147172129658372239, #FPS
-            "Halo": 1147172129658372239, #FPS
-            "Hell Let Loose": 1325565264246603859, #Hell Let Loose
-            "Helldivers 2": 1215290878973972481, # Helldivers
-            "Hogwarts Legacy": 1215035228364603552, #RPG Games (I'm so lost)
-            "Jackbox": 1187881125813698611, #Party
-            "League of Legends": 1308589894268092476, #League of Legends
-            "Lethal Company": 934226974468112434, #Horror
-            "Lockdown Protocol": 1187881125813698611, #Party
-            "Lost Ark": 1215035228364603552, #RPG Games (Maybe? Kind of?)
-            "Magic: The Gathering": 1065493485714686003, #Magic channel
-            "Mario Kart": 1021073264493211739, #Racing Games
-            "Marvel Rivals": 1318214983670042707,
-            "Minecraft": 1109614662594613298, #Minecraft General
-            "Monster Hunter": 1315178720364859402, #Monster Hunter
-            "Mortal Kombat": 1021075894120480818, #Fighting Games
-            "No Man's Sky": 1021072931947819049, #Space & Flight Games
-            "Once Human": 1021075269886414849, #third-person shooter
-            "Overwatch": 1318215028494831697, #Overwatch?
-            "Palia": 1318220176981889187, #Palia
-            "Palworld": 934224139181502524, #Survival-Craft
-            "Path of Exile": 1205575608231530506, #PoE
-            "Path of Exile 2": 1310386526093578251, #PoE2
-            "Pavlov": 933461190582091887, #VR
-            "Player Unknown Battlegrounds": 1021071765994209451, #Battle Royale
-            "Pokémon": 1065621451417337956,
-            "Raft": 934224139181502524, #Survival-Craft
-            "Rainbow Six": 1325558740086161428, #Rainbow Six
-            "Ready Or Not": 1325558905907970199, #RoN
-            "Red Dead: Online": 1215035228364603552, #RPG Games
-            "R.E.P.O": 1351009382154109018, #Repo
-            "Rocket League": 1021076388406632468, #Sports
-            "RuneScape": 1215035228364603552, #RPG Games
-            "Rust": 934224139181502524, #Survival-Craft
-            "Satisfactory": 934224139181502524, #Survival-Craft (Cozy games has been argued)
-            "Sea of Thieves": 1215035228364603552, #RPG Games (This is the biggest shot in the dark)
-            "The Sims": 1356280039603437749, #Cozy General
-            "Space Marines 2": 1021075269886414849, #third-person shooter
-            "Star Citizen": 1021072931947819049, #Space & Flight Games
-            "Stardew Valley": 1356280039603437749, #Cozy General
-            "Starfield": 1215035228364603552, #RPG Games
-            "Super Smash Bros.": 1021075894120480818, #Fighting Games
-            "The Division": 1021075269886414849, #third-person shooter
-            "Tiny Tina's Wonderlands": 1147172129658372239, #FPS
-            "Truck Simulator": 1192812670592749710, #Simulation Games
-            "Valheim": 934224139181502524, #Survival-Craft 
-            "Valorant": 1147172129658372239, #FPS
-            "Warframe": 1021075269886414849, #third-person shooter
-            "War Thunder": 1325565211884781588,
-            "World of Tanks": 1192812670592749710, #Simulation Games
-            "World of Warcraft": 1067440649479131187 #Wow General
-        }
+        # Load all configuration from JSON files
+        self.load_configs()
+
         # Use Discord's internal format for the Channels & Roles link.
         self.channels_and_roles_link = "<id:customize>"
+
+    def load_configs(self):
+        """Load all configuration from JSON files"""
+        try:
+            # Load authorized roles
+            with open(self.config_dir / "roles.json", "r", encoding="utf-8") as f:
+                roles_data = json.load(f)
+                self.allowed_roles = roles_data.get("authorized_roles", [])
+
+            # Load game aliases
+            with open(self.config_dir / "games.json", "r", encoding="utf-8") as f:
+                games_data = json.load(f)
+                self.alias_to_role = games_data.get("alias_to_role", {})
+
+            # Load channel mappings
+            with open(self.config_dir / "channels.json", "r", encoding="utf-8") as f:
+                channels_data = json.load(f)
+                self.role_name_to_channel_id = channels_data.get("role_to_channel", {})
+
+            # Load command configurations
+            with open(self.config_dir / "commands.json", "r", encoding="utf-8") as f:
+                self.commands_config = json.load(f)
+
+            # Load rules
+            with open(self.config_dir / "rules.json", "r", encoding="utf-8") as f:
+                rules_data = json.load(f)
+                self.rules = rules_data.get("rules", {})
+
+            log.info("Wiki configs loaded successfully")
+        except Exception as e:
+            log.error(f"Error loading wiki configs: {e}")
+            # Set defaults if loading fails
+            self.allowed_roles = []
+            self.alias_to_role = {}
+            self.role_name_to_channel_id = {}
+            self.commands_config = {}
+            self.rules = {}
 
     def is_authorized(self, ctx):
         """
         Return True if the invoking user has one of the allowed roles.
         """
         return any(role.name in self.allowed_roles for role in ctx.author.roles)
+
+    def is_authorized_interaction(self, interaction: discord.Interaction):
+        """
+        Return True if the invoking user has one of the allowed roles (for slash commands).
+        """
+        if not isinstance(interaction.user, discord.Member):
+            return False
+        return any(role.name in self.allowed_roles for role in interaction.user.roles)
 
     async def delete_and_check(self, ctx):
         """
@@ -241,6 +153,8 @@ class Wiki(commands.Cog):
         if not await self.delete_and_check(ctx):
             return
 
+        lfg_cfg = self.commands_config.get("lfg", {})
+
         role_mention = None
         mention_text = ""
         extra_text = ""
@@ -269,10 +183,11 @@ class Wiki(commands.Cog):
                             role_mention = role_name
                             break
             except Exception as e:
-                print(f"Error fetching referenced message: {e}")
+                log.error(f"Error fetching referenced message: {e}")
 
         if role_mention is None:
-            await self.send_reply(ctx, "No game alias detected in the referenced message.")
+            no_game_msg = lfg_cfg.get("no_game_detected", "No game alias detected in the referenced message.")
+            await self.send_reply(ctx, no_game_msg)
             return
 
         # Get the role object.
@@ -280,52 +195,49 @@ class Wiki(commands.Cog):
         if role_obj:
             mention_text = f"{role_obj.mention} {replied_user.mention}\n"
             expected_channel_id = self.role_name_to_channel_id.get(role_obj.name)
+            lfg_guide_url = lfg_cfg.get("guide_url", "https://wiki.parentsthatga.me/discord/lfg")
+            guide_emoji = lfg_cfg.get("emoji", "📌")
 
             # CASE 1: Correct channel
             if expected_channel_id and ctx.channel.id == expected_channel_id:
-                output = (
-                    f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                    "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
-                )
+                correct_msg = lfg_cfg.get("correct_channel_text", "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!")
+                output = f"{mention_text}{correct_msg}\n{guide_emoji} [LFG Guide]({lfg_guide_url})"
                 await reply_target.reply(output)
 
             # CASE 2: Wrong channel
             elif expected_channel_id:
                 target_channel = ctx.guild.get_channel(expected_channel_id)
-                extra_text = (
-                    f"Detected game role: **{role_obj.name}**. This is not the correct channel, "
-                    f"we have a dedicated channel here: {target_channel.mention if target_channel else 'Unknown'}.\n"
-                    f"Please grab the game-specific role from {self.channels_and_roles_link}."
+                wrong_msg = lfg_cfg.get("wrong_channel_text", "Detected game role: **{role}**. This is not the correct channel, we have a dedicated channel here: {channel}.\nPlease grab the game-specific role from {customize_link}.")
+                wrong_msg = wrong_msg.format(
+                    role=role_obj.name,
+                    channel=target_channel.mention if target_channel else 'Unknown',
+                    customize_link=self.channels_and_roles_link
                 )
-                await reply_target.reply(extra_text)
+                await reply_target.reply(wrong_msg)
 
                 # Give role if missing
                 if role_obj not in replied_user.roles:
                     try:
                         await replied_user.add_roles(role_obj, reason="User redirected by LFG command")
                     except Exception as e:
-                        print(f"Failed to add role to user: {e}")
+                        log.error(f"Failed to add role to user: {e}")
 
                 # Also send LFG ping in the right channel
                 if target_channel:
-                    lfg_text = (
-                        f"{role_obj.mention} {replied_user.mention}\n"
-                        "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                        "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
-                    )
+                    correct_msg = lfg_cfg.get("correct_channel_text", "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!")
+                    lfg_text = f"{role_obj.mention} {replied_user.mention}\n{correct_msg}\n{guide_emoji} [LFG Guide]({lfg_guide_url})"
                     try:
                         await target_channel.send(lfg_text)
                     except Exception as e:
-                        print(f"Failed to send LFG in proper channel: {e}")
+                        log.error(f"Failed to send LFG in proper channel: {e}")
             else:
                 # CASE 3: No mapped channel
-                output = (
-                    f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
-                    "📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
-                )
+                no_channel_msg = lfg_cfg.get("no_channel_text", "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!")
+                output = f"{mention_text}{no_channel_msg}\n{guide_emoji} [LFG Guide]({lfg_guide_url})"
                 await reply_target.reply(output)
         else:
-            await self.send_reply(ctx, f"Could not find role: {role_mention}.")
+            role_not_found_msg = lfg_cfg.get("role_not_found", "Could not find role: {role}.").format(role=role_mention)
+            await self.send_reply(ctx, role_not_found_msg)
 
     @commands.command()
     async def host(self, ctx):
@@ -334,10 +246,14 @@ class Wiki(commands.Cog):
         """
         if not await self.delete_and_check(ctx):
             return
-        output = (
-            "Interested in hosting or promoting something in PA? Check out our guidelines first:\n"
-            "📌 [Host/Advertise](https://wiki.parentsthatga.me/servers/hosting)"
-        )
+        host_cfg = self.commands_config.get("host", {})
+        if not host_cfg.get("enabled", True):
+            return
+        text = host_cfg.get("text", "Check out our hosting guidelines:")
+        url = host_cfg.get("url", "https://wiki.parentsthatga.me/servers/hosting")
+        url_text = host_cfg.get("url_text", "Host/Advertise")
+        emoji = host_cfg.get("emoji", "📌")
+        output = f"{text}\n{emoji} [{url_text}]({url})"
         await self.send_reply(ctx, output)
 
     @commands.command()
@@ -347,10 +263,14 @@ class Wiki(commands.Cog):
         """
         if not await self.delete_and_check(ctx):
             return
-        output = (
-            "Curious about our biweekly D&D games or need help creating a character? Start here:\n"
-            "🧙 [D&D Guide](https://wiki.parentsthatga.me/discord/dnd)"
-        )
+        biweekly_cfg = self.commands_config.get("biweekly", {})
+        if not biweekly_cfg.get("enabled", True):
+            return
+        text = biweekly_cfg.get("text", "Check out our D&D info:")
+        url = biweekly_cfg.get("url", "https://wiki.parentsthatga.me/discord/dnd")
+        url_text = biweekly_cfg.get("url_text", "D&D Guide")
+        emoji = biweekly_cfg.get("emoji", "🧙")
+        output = f"{text}\n{emoji} [{url_text}]({url})"
         await self.send_reply(ctx, output)
 
     @commands.command()
@@ -361,29 +281,21 @@ class Wiki(commands.Cog):
         """
         if not await self.delete_and_check(ctx):
             return
-        rules = {
-            1: "**1️⃣ Be Respectful**\nTreat everyone respectfully. Disrespectful or toxic behavior will result in action.",
-            2: "**2️⃣ 18+ Only**\nPA is for adults only. You must be 18 or older to participate.",
-            3: "**3️⃣ Be Civil & Read the Room**\nAvoid sensitive topics unless everyone is comfortable. No such discussions in text channels.",
-            4: "**4️⃣ NSFW Content Is Not Allowed**\nExplicit, grotesque, or pornographic content will result in a ban.",
-            5: "**5️⃣ Communication - English Preferred**\nPlease speak in English so the whole community can engage.",
-            6: "**6️⃣ Use Channels & Roles Properly**\nUse the correct channels for each topic.\n📌 [Roles How-To](https://wiki.parentsthatga.me/discord/roles)\n📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)",
-            7: "**7️⃣ Promoting Your Own Content**\nPromote in #promote-yourself or #clip-sharing only. Apply in #applications to post on official PA platforms.",
-            8: "**8️⃣ Crowdfunding & Solicitation**\nNo donation or solicitation links allowed. DM spam is not tolerated.",
-            9: "**9️⃣ No Unapproved Invites or Links**\nGame server links require vetting and Discord invites are absolutely not allowed.\n📌 [Host/Advertise](https://wiki.parentsthatga.me/servers/hosting)\n📌 [Apply for Vetting](https://discord.com/channels/629113661113368594/693601096467218523/1349427482637635677)",
-            10: "**🔟 Build-A-VC Channel Names**\nChannel names must be clean and appropriate for Discord Discovery."
-        }
-        rule_text = rules.get(rule_number)
-        if rule_text:
+        rule_cfg = self.commands_config.get("rule", {})
+        rule_data = self.rules.get(str(rule_number))
+        if rule_data:
+            rules_url = rule_cfg.get("rules_url", "https://wiki.parentsthatga.me/rules")
+            embed_title = rule_cfg.get("embed_title", "Full Rules")
             embed = discord.Embed(
-                title="Full Rules",
-                url="https://wiki.parentsthatga.me/rules",
-                description=rule_text,
+                title=embed_title,
+                url=rules_url,
+                description=f"**{rule_data['title']}**\n{rule_data['text']}",
                 color=discord.Color.orange()
             )
             await self.send_reply(ctx, embed=embed)
         else:
-            await self.send_reply(ctx, "Invalid rule number. Use 1–10.")
+            invalid_msg = rule_cfg.get("invalid_rule_text", "Invalid rule number. Use 1–10.")
+            await self.send_reply(ctx, invalid_msg)
 
     @commands.command()
     async def wow(self, ctx):
@@ -392,10 +304,13 @@ class Wiki(commands.Cog):
         """
         if not await self.delete_and_check(ctx):
             return
-        output = (
-            "Curious about WoW? Check out the guide here:\n"
-            "https://wiki.parentsthatga.me/WoW"
-        )
+        wow_cfg = self.commands_config.get("wow", {})
+        if not wow_cfg.get("enabled", True):
+            return
+        text = wow_cfg.get("text", "Check out the WoW guide:")
+        url = wow_cfg.get("url", "https://wiki.parentsthatga.me/WoW")
+        emoji = wow_cfg.get("emoji", "🐉")
+        output = f"{text}\n{url}"
         await self.send_reply(ctx, output)
 
     @commands.command()
@@ -422,11 +337,235 @@ class Wiki(commands.Cog):
         """
         if not await self.delete_and_check(ctx):
             return
-        output = (
-            "Want to see which servers PA is currently hosting?\n"
-            "🖥️ [Check the Server List](https://wiki.parentsthatga.me/en/servers)"
-        )
+        hosted_cfg = self.commands_config.get("hosted", {})
+        if not hosted_cfg.get("enabled", True):
+            return
+        text = hosted_cfg.get("text", "Check out our hosted servers:")
+        url = hosted_cfg.get("url", "https://wiki.parentsthatga.me/en/servers")
+        url_text = hosted_cfg.get("url_text", "Server List")
+        emoji = hosted_cfg.get("emoji", "🖥️")
+        output = f"{text}\n{emoji} [{url_text}]({url})"
         await self.send_reply(ctx, output)
 
+    @commands.is_owner()
+    @commands.command()
+    async def wikireload(self, ctx):
+        """Reload all wiki configuration files"""
+        try:
+            self.load_configs()
+            await ctx.send("✅ Wiki configurations reloaded successfully!")
+        except Exception as e:
+            await ctx.send(f"❌ Error reloading configs: {e}")
+            log.error(f"Error reloading wiki configs: {e}")
+
+    # Slash Commands
+    @app_commands.command(name="host", description="Link to hosting/advertising guidelines")
+    async def host_slash(self, interaction: discord.Interaction):
+        """Link to the hosting/advertising guidelines in PA."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        host_cfg = self.commands_config.get("host", {})
+        if not host_cfg.get("enabled", True):
+            await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
+            return
+        text = host_cfg.get("text", "Check out our hosting guidelines:")
+        url = host_cfg.get("url", "https://wiki.parentsthatga.me/servers/hosting")
+        url_text = host_cfg.get("url_text", "Host/Advertise")
+        emoji = host_cfg.get("emoji", "📌")
+        output = f"{text}\n{emoji} [{url_text}]({url})"
+        await interaction.response.send_message(output)
+
+    @app_commands.command(name="biweekly", description="Info about biweekly D&D sessions")
+    async def biweekly_slash(self, interaction: discord.Interaction):
+        """Post info about our biweekly D&D sessions and how to get started."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        biweekly_cfg = self.commands_config.get("biweekly", {})
+        if not biweekly_cfg.get("enabled", True):
+            await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
+            return
+        text = biweekly_cfg.get("text", "Check out our D&D info:")
+        url = biweekly_cfg.get("url", "https://wiki.parentsthatga.me/discord/dnd")
+        url_text = biweekly_cfg.get("url_text", "D&D Guide")
+        emoji = biweekly_cfg.get("emoji", "🧙")
+        output = f"{text}\n{emoji} [{url_text}]({url})"
+        await interaction.response.send_message(output)
+
+    @app_commands.command(name="rule", description="Show a specific server rule")
+    @app_commands.describe(rule_number="The rule number (1-10)")
+    async def rule_slash(self, interaction: discord.Interaction, rule_number: int):
+        """Show a quick summary of the selected rule with a link to the full rules page."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        rule_cfg = self.commands_config.get("rule", {})
+        rule_data = self.rules.get(str(rule_number))
+        if rule_data:
+            rules_url = rule_cfg.get("rules_url", "https://wiki.parentsthatga.me/rules")
+            embed_title = rule_cfg.get("embed_title", "Full Rules")
+            embed = discord.Embed(
+                title=embed_title,
+                url=rules_url,
+                description=f"**{rule_data['title']}**\n{rule_data['text']}",
+                color=discord.Color.orange()
+            )
+            await interaction.response.send_message(embed=embed)
+        else:
+            invalid_msg = rule_cfg.get("invalid_rule_text", "Invalid rule number. Use 1–10.")
+            await interaction.response.send_message(invalid_msg, ephemeral=True)
+
+    @app_commands.command(name="wow", description="Link to World of Warcraft wiki section")
+    async def wow_slash(self, interaction: discord.Interaction):
+        """Link to the World of Warcraft wiki section for PA players."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        wow_cfg = self.commands_config.get("wow", {})
+        if not wow_cfg.get("enabled", True):
+            await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
+            return
+        text = wow_cfg.get("text", "Check out the WoW guide:")
+        url = wow_cfg.get("url", "https://wiki.parentsthatga.me/WoW")
+        output = f"{text}\n{url}"
+        await interaction.response.send_message(output)
+
+    @app_commands.command(name="fafo", description="Post a warning message with FAFO button")
+    async def fafo_slash(self, interaction: discord.Interaction):
+        """Posts a warning message and a 'FAFO' button. Users who click it are timed out for 5 minutes."""
+        if not await self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        warning_text = (
+            "__**⚠️ WARNING:**__\n"
+            "If you cannot abide by the rules from previous responses,\n"
+            "**Click Below To FAFO**"
+        )
+        view = FafoView()
+        await interaction.response.send_message(warning_text, view=view)
+        msg = await interaction.original_response()
+        view.message = msg
+
+    @app_commands.command(name="hosted", description="Show list of PA-hosted servers")
+    async def hosted_slash(self, interaction: discord.Interaction):
+        """Shows the current list of PA-hosted servers via the wiki."""
+        if not await self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        hosted_url = await self.config.guild(interaction.guild).hosted_url()
+        output = (
+            "Want to see which servers PA is currently hosting?\n"
+            f"🖥️ [Check the Server List]({hosted_url})"
+        )
+        await interaction.response.send_message(output)
+
+    @app_commands.command(name="lfg", description="Detect game interest and direct to correct LFG channel")
+    @app_commands.describe(
+        user="The user looking for a group",
+        game="The game they want to play"
+    )
+    async def lfg_slash(self, interaction: discord.Interaction, user: discord.Member, game: str):
+        """Direct users to the correct LFG channel based on game interest."""
+        if not await self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        alias_to_role = await self.config.guild(interaction.guild).alias_to_role()
+        role_name_to_channel_id = await self.config.guild(interaction.guild).role_name_to_channel_id()
+        lfg_guide_url = await self.config.guild(interaction.guild).lfg_guide_url()
+
+        role_mention = None
+        content = game.lower().replace(" ", "")
+
+        # First pass: check each word after stripping punctuation.
+        for word in content.split():
+            cleaned = word.strip(string.punctuation)
+            if cleaned in alias_to_role:
+                role_mention = alias_to_role[cleaned]
+                break
+
+        # Second pass: regex search for any alias as a whole word.
+        if not role_mention:
+            for alias, role_name in alias_to_role.items():
+                pattern = r'\b' + re.escape(alias) + r'\b'
+                if re.search(pattern, content):
+                    role_mention = role_name
+                    break
+
+        if role_mention is None:
+            await interaction.followup.send(f"No game alias detected for '{game}'.", ephemeral=True)
+            return
+
+        # Get the role object.
+        role_obj = discord.utils.get(interaction.guild.roles, name=role_mention)
+        if not role_obj:
+            await interaction.followup.send(f"Could not find role: {role_mention}.", ephemeral=True)
+            return
+
+        mention_text = f"{role_obj.mention} {user.mention}\n"
+        expected_channel_id = role_name_to_channel_id.get(role_obj.name)
+
+        # CASE 1: Correct channel
+        if expected_channel_id and interaction.channel_id == expected_channel_id:
+            output = (
+                f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                f"📌 [LFG Guide]({lfg_guide_url})"
+            )
+            await interaction.followup.send(output)
+
+        # CASE 2: Wrong channel
+        elif expected_channel_id:
+            target_channel = interaction.guild.get_channel(expected_channel_id)
+            extra_text = (
+                f"Detected game role: **{role_obj.name}**. This is not the correct channel, "
+                f"we have a dedicated channel here: {target_channel.mention if target_channel else 'Unknown'}.\n"
+                f"Please grab the game-specific role from {self.channels_and_roles_link}."
+            )
+            await interaction.followup.send(extra_text)
+
+            # Give role if missing
+            if role_obj not in user.roles:
+                try:
+                    await user.add_roles(role_obj, reason="User redirected by LFG command")
+                except Exception as e:
+                    log.error(f"Failed to add role to user: {e}")
+
+            # Also send LFG ping in the right channel
+            if target_channel:
+                lfg_text = (
+                    f"{role_obj.mention} {user.mention}\n"
+                    "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                    f"📌 [LFG Guide]({lfg_guide_url})"
+                )
+                try:
+                    await target_channel.send(lfg_text)
+                except Exception as e:
+                    log.error(f"Failed to send LFG in proper channel: {e}")
+        else:
+            # CASE 3: No mapped channel
+            output = (
+                f"{mention_text}Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!\n"
+                f"📌 [LFG Guide]({lfg_guide_url})"
+            )
+            await interaction.followup.send(output)
+
 async def setup(bot):
-    await bot.add_cog(Wiki(bot))
+    cog = Wiki(bot)
+    await bot.add_cog(cog)
+    # Register slash commands
+    bot.tree.add_command(cog.host_slash)
+    bot.tree.add_command(cog.biweekly_slash)
+    bot.tree.add_command(cog.rule_slash)
+    bot.tree.add_command(cog.wow_slash)
+    bot.tree.add_command(cog.fafo_slash)
+    bot.tree.add_command(cog.hosted_slash)
+    bot.tree.add_command(cog.lfg_slash)

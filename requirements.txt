@@ -1,0 +1,11 @@
+# Red-Bot MyRedCogs Requirements
+# These dependencies are required for the karaoke and wiki cogs
+
+# Discord.py is provided by Red-Bot, but specifying for clarity
+discord.py>=2.0.0
+
+# Red-Bot core (should already be installed)
+Red-DiscordBot>=3.5.0
+
+# Required for karaoke cog API calls
+requests>=2.31.0

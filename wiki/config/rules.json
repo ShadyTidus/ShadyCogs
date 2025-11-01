@@ -1,0 +1,46 @@
+{
+  "_comment": "Server rules configuration - easily edit rule text here",
+  "_instructions": "Edit the text for each rule. Keep rule numbers 1-10.",
+  "rules": {
+    "1": {
+      "title": "1️⃣ Be Respectful",
+      "text": "Treat everyone respectfully. Disrespectful or toxic behavior will result in action."
+    },
+    "2": {
+      "title": "2️⃣ 18+ Only",
+      "text": "PA is for adults only. You must be 18 or older to participate."
+    },
+    "3": {
+      "title": "3️⃣ Be Civil & Read the Room",
+      "text": "Avoid sensitive topics unless everyone is comfortable. No such discussions in text channels."
+    },
+    "4": {
+      "title": "4️⃣ NSFW Content Is Not Allowed",
+      "text": "Explicit, grotesque, or pornographic content will result in a ban."
+    },
+    "5": {
+      "title": "5️⃣ Communication - English Preferred",
+      "text": "Please speak in English so the whole community can engage."
+    },
+    "6": {
+      "title": "6️⃣ Use Channels & Roles Properly",
+      "text": "Use the correct channels for each topic.\n📌 [Roles How-To](https://wiki.parentsthatga.me/discord/roles)\n📌 [LFG Guide](https://wiki.parentsthatga.me/discord/lfg)"
+    },
+    "7": {
+      "title": "7️⃣ Promoting Your Own Content",
+      "text": "Promote in #promote-yourself or #clip-sharing only. Apply in #applications to post on official PA platforms."
+    },
+    "8": {
+      "title": "8️⃣ Crowdfunding & Solicitation",
+      "text": "No donation or solicitation links allowed. DM spam is not tolerated."
+    },
+    "9": {
+      "title": "9️⃣ No Unapproved Invites or Links",
+      "text": "Game server links require vetting and Discord invites are absolutely not allowed.\n📌 [Host/Advertise](https://wiki.parentsthatga.me/servers/hosting)\n📌 [Apply for Vetting](https://discord.com/channels/629113661113368594/693601096467218523/1349427482637635677)"
+    },
+    "10": {
+      "title": "🔟 Build-A-VC Channel Names",
+      "text": "Channel names must be clean and appropriate for Discord Discovery."
+    }
+  }
+}

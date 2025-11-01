@@ -1,11 +1,11 @@
 {
   "author": ["ShadyTidus"],
-  "description": "Karaoke Downloader For PA Karaoke Nights",
-  "install_msg": "Thanks for installing the Karaoke Cog! Use `ksearch` to get started.",
+  "description": "Karaoke Downloader with interactive search via DMs. Supports both prefix commands and slash commands. Requires API token configuration by bot owner.",
+  "install_msg": "Thanks for installing the Karaoke Cog! IMPORTANT: Bot owner must set the API token using `[p]setkaraoketoken <token>` before use. Use `/ksearch` (slash command) to search for karaoke videos.",
   "name": "Karaoke",
-  "short": "Karaoke Downloader for the PA Discord server.",
-  "requirements": [],
-  "tags": ["community", "karaoke", "discord"],
+  "short": "Karaoke downloader with slash command support.",
+  "requirements": ["requests"],
+  "tags": ["community", "karaoke", "discord", "slash-commands", "music"],
   "type": "COG",
   "hidden": false
 }

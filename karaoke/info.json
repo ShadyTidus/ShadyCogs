@@ -1,7 +1,7 @@
 {
   "author": ["ShadyTidus"],
-  "description": "Karaoke Downloader with interactive search via DMs. Supports both prefix commands and slash commands. Requires API token configuration by bot owner.",
-  "install_msg": "Thanks for installing the Karaoke Cog! IMPORTANT: Bot owner must set the API token using `[p]setkaraoketoken <token>` before use. Use `/ksearch` (slash command) to search for karaoke videos.",
+  "description": "Karaoke Downloader with interactive search via DMs. Supports both prefix commands and slash commands. Requires API token configuration by bot owner. From ShadyCogs collection.",
+  "install_msg": "Thanks for installing the Karaoke Cog from ShadyCogs! IMPORTANT: Bot owner must set the API token using `[p]setkaraoketoken <token>` before use. Use `/ksearch` (slash command) to search for karaoke videos.",
   "name": "Karaoke",
   "short": "Karaoke downloader with slash command support.",
   "requirements": ["requests"],

@@ -1,9 +1,9 @@
 {
   "author": ["ShadyTidus"],
-  "description": "Community Wiki Helper with slash command support: LFG system with game detection, hosting guidelines, D&D info, rule explanations, and moderation tools. Role-based authorization required.",
-  "install_msg": "Thanks for installing the Wiki Cog! Use slash commands: `/lfg`, `/host`, `/biweekly`, `/rule`, `/wow`, `/fafo`, `/hosted`. Prefix commands also available. Requires authorized roles to use.",
+  "description": "Community Wiki Helper with slash command support: LFG system with game detection, hosting guidelines, info commands, rule explanations, and moderation tools. Easy JSON configuration. From ShadyCogs collection.",
+  "install_msg": "Thanks for installing the Wiki Cog from ShadyCogs! Configure using JSON files in wiki/config/ (see wiki/config/examples/ for templates). Use slash commands: `/lfg`, `/host`, `/biweekly`, `/rule`, `/wow`, `/fafo`, `/hosted`. Reload configs with `[p]wikireload`.",
   "name": "wiki",
-  "short": "Wiki helper with slash commands and LFG system.",
+  "short": "Wiki helper with JSON configs and LFG system.",
   "requirements": [],
   "tags": ["community", "wiki", "discord", "lfg", "rules", "slash-commands", "moderation"],
   "type": "COG",

@@ -1,6 +1,6 @@
-# MyRedCogs - Red-Bot Discord Cogs Collection
+# ShadyCogs - Red-Bot Discord Cogs Collection
 
-A collection of Red-Bot cogs for Discord community management, created for the Parents That Game (PA) community but now configurable for any Discord server.
+A collection of Red-Bot cogs for Discord community management, created for the Parental Advisory (PA) Discord community - "Parents That Game" - but now configurable for any Discord server.
 
 ## Cogs Included
 
@@ -22,9 +22,9 @@ Comprehensive community management tool with slash commands for rules, hosting g
 ### Install via Red-Bot
 
 ```bash
-[p]repo add MyRedCogs https://github.com/ShadyTidus/ShadyCogs
-[p]cog install MyRedCogs karaoke
-[p]cog install MyRedCogs wiki
+[p]repo add ShadyCogs https://github.com/ShadyTidus/ShadyCogs
+[p]cog install ShadyCogs karaoke
+[p]cog install ShadyCogs wiki
 [p]load karaoke
 [p]load wiki
 ```

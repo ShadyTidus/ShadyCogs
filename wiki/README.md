@@ -2,6 +2,8 @@
 
 A comprehensive Discord bot cog for community management with an intelligent LFG (Looking For Group) system, server rules reference, and customizable wiki commands.
 
+Created for the Parental Advisory (PA) Discord - "Parents That Game" - but fully configurable for any community.
+
 ## Features
 
 - ✅ **LFG System** - Auto-detect games and route users to correct channels

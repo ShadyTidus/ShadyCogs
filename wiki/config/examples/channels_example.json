@@ -1,0 +1,19 @@
+{
+  "_comment": "EXAMPLE: Channel mappings for LFG system",
+  "_instructions": "Copy this to wiki/config/channels.json and customize",
+  "_note": "Keys are exact Discord role names, values are channel IDs (18-19 digit numbers)",
+  "_how_to_get_channel_id": "Enable Developer Mode in Discord, right-click channel, Copy ID",
+
+  "role_to_channel": {
+    "Minecraft": 1234567890123456789,
+    "Call of Duty": 1234567890123456790,
+    "Valorant": 1234567890123456791,
+    "Apex Legends": 1234567890123456792,
+    "League of Legends": 1234567890123456793,
+    "Fortnite": 1234567890123456794,
+    "World of Warcraft": 1234567890123456795,
+    "Counter-Strike": 1234567890123456796,
+    "Rocket League": 1234567890123456797,
+    "Overwatch": 1234567890123456798
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "_comment": "EXAMPLE: Command configurations",
+  "_instructions": "Copy this to wiki/config/commands.json and customize URLs and text",
+
+  "host": {
+    "enabled": true,
+    "text": "Interested in hosting or promoting something? Check our guidelines:",
+    "url": "https://your-wiki-url.com/hosting",
+    "url_text": "Hosting Guide",
+    "emoji": "📌"
+  },
+
+  "biweekly": {
+    "enabled": true,
+    "text": "Join our community events! Check the schedule:",
+    "url": "https://your-wiki-url.com/events",
+    "url_text": "Event Guide",
+    "emoji": "🎮"
+  },
+
+  "wow": {
+    "enabled": true,
+    "text": "Playing World of Warcraft? Check our guild info:",
+    "url": "https://your-wiki-url.com/wow",
+    "url_text": "WoW Guide",
+    "emoji": "🐉"
+  },
+
+  "hosted": {
+    "enabled": true,
+    "text": "Check out our community-hosted game servers:",
+    "url": "https://your-wiki-url.com/servers",
+    "url_text": "Server List",
+    "emoji": "🖥️"
+  },
+
+  "lfg": {
+    "enabled": true,
+    "guide_url": "https://your-wiki-url.com/lfg-guide",
+    "guide_text": "LFG Guide",
+    "correct_channel_text": "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!",
+    "wrong_channel_text": "Detected game role: **{role}**. This is not the correct channel, we have a dedicated channel here: {channel}.\nPlease grab the game-specific role from {customize_link}.",
+    "no_channel_text": "Looking for a group? Make sure to tag the game you're playing and check out the LFG channels!",
+    "no_game_detected": "No game alias detected in the referenced message.",
+    "role_not_found": "Could not find role: {role}.",
+    "emoji": "📌"
+  },
+
+  "rule": {
+    "enabled": true,
+    "rules_url": "https://your-wiki-url.com/rules",
+    "embed_title": "Server Rules",
+    "embed_color": "orange",
+    "invalid_rule_text": "Invalid rule number. Use 1–10.",
+    "emoji": "📘"
+  },
+
+  "fafo": {
+    "enabled": true,
+    "warning_title": "__**⚠️ WARNING:**__",
+    "warning_text": "If you cannot abide by the rules from previous responses,\n**Click Below To FAFO**",
+    "button_label": "FAFO",
+    "timeout_duration_minutes": 5,
+    "timeout_message": "You have been timed out for {duration} minutes.",
+    "no_permission_message": "I don't have permission to timeout you. Please check my role position and permissions.",
+    "member_not_found": "Member not found."
+  }
+}

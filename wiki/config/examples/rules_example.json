@@ -1,0 +1,48 @@
+{
+  "_comment": "EXAMPLE: Server rules configuration",
+  "_instructions": "Copy this to wiki/config/rules.json and customize with your server's rules",
+  "_note": "You can use markdown links: [Text](URL) and line breaks: \\n",
+
+  "rules": {
+    "1": {
+      "title": "1️⃣ Be Respectful",
+      "text": "Treat everyone with respect. Disrespectful or toxic behavior will result in action."
+    },
+    "2": {
+      "title": "2️⃣ No Spam",
+      "text": "Don't spam messages, emojis, or channels. Keep conversations on-topic."
+    },
+    "3": {
+      "title": "3️⃣ No NSFW Content",
+      "text": "Keep all content safe for work. NSFW material will result in an immediate ban."
+    },
+    "4": {
+      "title": "4️⃣ Follow Discord TOS",
+      "text": "All members must follow Discord's Terms of Service and Community Guidelines."
+    },
+    "5": {
+      "title": "5️⃣ Use Proper Channels",
+      "text": "Post content in the appropriate channels. Check channel descriptions if unsure."
+    },
+    "6": {
+      "title": "6️⃣ No Advertising",
+      "text": "Don't advertise other Discord servers, products, or services without permission."
+    },
+    "7": {
+      "title": "7️⃣ English Only",
+      "text": "Please use English in all text channels so everyone can participate."
+    },
+    "8": {
+      "title": "8️⃣ No Harassment",
+      "text": "Harassment, bullying, or hate speech of any kind will not be tolerated."
+    },
+    "9": {
+      "title": "9️⃣ Listen to Staff",
+      "text": "Follow moderator instructions. If you have concerns, message staff privately."
+    },
+    "10": {
+      "title": "🔟 Have Fun!",
+      "text": "We're here to build a positive community. Be friendly and enjoy your time here!"
+    }
+  }
+}

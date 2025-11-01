@@ -1,0 +1,12 @@
+{
+  "_comment": "EXAMPLE: Authorized roles configuration",
+  "_instructions": "Copy this to wiki/config/roles.json and customize with your server's role names",
+  "_note": "Role names must match Discord EXACTLY (case-sensitive)",
+
+  "authorized_roles": [
+    "Moderators",
+    "Admins",
+    "Community Managers",
+    "Staff"
+  ]
+}

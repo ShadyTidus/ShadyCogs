@@ -1,0 +1,35 @@
+{
+  "_comment": "EXAMPLE: Small server game aliases (10 games)",
+  "_instructions": "Copy this to wiki/config/games.json and customize",
+  "_note": "Keys are lowercase nicknames, values are exact Discord role names",
+
+  "alias_to_role": {
+    "mc": "Minecraft",
+    "minecraft": "Minecraft",
+
+    "cod": "Call of Duty",
+    "callofduty": "Call of Duty",
+    "warzone": "Call of Duty",
+
+    "valorant": "Valorant",
+    "val": "Valorant",
+
+    "apex": "Apex Legends",
+
+    "lol": "League of Legends",
+
+    "fortnite": "Fortnite",
+    "fn": "Fortnite",
+
+    "wow": "World of Warcraft",
+
+    "csgo": "Counter-Strike",
+    "cs2": "Counter-Strike",
+
+    "rl": "Rocket League",
+
+    "overwatch": "Overwatch",
+    "ow": "Overwatch",
+    "ow2": "Overwatch"
+  }
+}

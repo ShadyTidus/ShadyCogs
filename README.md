@@ -10,6 +10,9 @@ Search and download karaoke videos through an interactive DM-based interface wit
 ### 2. Wiki - Community Helper & LFG System
 Comprehensive community management tool with slash commands for rules, hosting guidelines, game-specific LFG routing, and moderation tools.
 
+### 3. ShadyVoiceMod - Voice Moderation System
+Advanced voice moderation with timed voice mutes, automatic expiry tracking, DM notifications, and comprehensive audit logging.
+
 ---
 
 ## Installation
@@ -25,15 +28,17 @@ Comprehensive community management tool with slash commands for rules, hosting g
 [p]repo add ShadyCogs https://github.com/ShadyTidus/ShadyCogs
 [p]cog install ShadyCogs karaoke
 [p]cog install ShadyCogs wiki
+[p]cog install ShadyCogs shadyvoicemod
 [p]load karaoke
 [p]load wiki
+[p]load shadyvoicemod
 ```
 
 ### Manual Installation
 
 1. Clone this repository to your Red-Bot cogs folder
 2. Install dependencies: `pip install -r requirements.txt`
-3. Load the cogs: `[p]load karaoke` and `[p]load wiki`
+3. Load the cogs: `[p]load karaoke`, `[p]load wiki`, and `[p]load shadyvoicemod`
 
 ---
 
@@ -200,7 +205,7 @@ Simply edit the JSON files:
 
 Run `[p]wikireload` to apply changes. See [CONFIGURATION.md](CONFIGURATION.md) for full guide!
 
-###Features
+### Features
 - ✅ Role-based command authorization
 - ✅ Configurable per-server settings
 - ✅ Slash command support
@@ -210,6 +215,119 @@ Run `[p]wikireload` to apply changes. See [CONFIGURATION.md](CONFIGURATION.md) f
 - ✅ Server rules reference (configurable)
 - ✅ Multiple wiki/guide links
 - ✅ FAFO self-timeout moderation tool
+
+---
+
+## ShadyVoiceMod Cog Setup
+
+### Overview
+
+ShadyVoiceMod provides comprehensive voice channel moderation with timed mutes that automatically expire. Perfect for managing disruptive voice channel behavior without permanent punishments.
+
+### Authorization System
+
+**Important:** ShadyVoiceMod uses the **same role authorization system as the Wiki cog**. Commands are restricted to users with roles listed in `wiki/config/roles.json`.
+
+**Authorized roles include:**
+- Roles listed in `wiki/config/roles.json`
+- Server administrators (always authorized)
+- Server owner (always authorized)
+
+To modify authorized roles, edit `wiki/config/roles.json`. No reload needed for ShadyVoiceMod - changes apply on next command use.
+
+### Initial Configuration
+
+**Set Audit Log Channel (Optional but Recommended):**
+```
+[p]vmodset logchannel #mod-logs
+```
+
+This enables detailed audit logging for all voice moderation actions.
+
+### Available Commands
+
+**Prefix Commands:**
+- `[p]vmute <user> <duration> <reason>` - Voice mute a user for a specified duration
+- `[p]vunmute <user> [reason]` - Manually remove a voice mute
+- `[p]vmutes` - List all active and pending voice mutes
+- `[p]vmodset logchannel <channel>` - Set audit log channel
+- `[p]vmodinfo` - Show help and information
+
+### Duration Formats
+
+Flexible duration parsing supports:
+- `30s` - 30 seconds
+- `5m` - 5 minutes
+- `2h` - 2 hours
+- `1d` - 1 day
+- `1w` - 1 week
+- Combined: `1h30m`, `2d12h`, `1w3d`
+
+### Usage Examples
+
+**Basic Voice Mute:**
+```
+[p]vmute @User 30m Being disruptive in voice chat
+```
+
+**Longer Mute:**
+```
+[p]vmute @User 2h Mic spamming and ignoring warnings
+```
+
+**Unmute Early:**
+```
+[p]vmute @User Appealed successfully
+```
+
+**Check Active Mutes:**
+```
+[p]vmutes
+```
+
+### How It Works
+
+1. **Instant Application**: If the user is in a voice channel, the mute applies immediately
+2. **Pending Mutes**: If the user is offline, the mute applies when they join a voice channel
+3. **Auto-Expiry**: Background task checks every 30 seconds and automatically lifts expired mutes
+4. **DM Notifications**: Users receive DMs when muted, when mutes are extended, and when mutes expire
+5. **Audit Logging**: All actions are logged to the configured channel with detailed embeds
+
+### Advanced Features
+
+**Mute Extension UI:**
+When a moderator tries to mute an already-muted user, an interactive UI appears with options to:
+- Cancel (if it was an error)
+- Extend the existing mute (opens a modal for additional time/reason)
+
+**Automatic Tracking:**
+- Tracks mute status (applied vs pending)
+- Handles users rejoining voice channels
+- Persists across bot restarts
+- Cleans up expired mutes automatically
+
+### Permissions Required
+
+**Bot Permissions:**
+- `Mute Members` - Required to apply voice mutes
+- `Send Messages` - For command responses
+- `Embed Links` - For audit logs and formatted responses
+
+**User Permissions:**
+- Must have a role listed in `wiki/config/roles.json` OR be a server administrator/owner
+- Administrator permission required for configuration commands (`vmodset`)
+
+### Features
+- ✅ Timed voice mutes with auto-expiry
+- ✅ Flexible duration parsing (seconds to weeks)
+- ✅ DM notifications to affected users
+- ✅ Comprehensive audit logging with embeds
+- ✅ Mute extension system via interactive modals
+- ✅ Pending mute system for offline users
+- ✅ Background task for automatic expiry
+- ✅ Role hierarchy enforcement
+- ✅ Prevention of self-muting and bot muting
+- ✅ Detailed mute tracking and status reporting
 
 ---
 
@@ -224,6 +342,12 @@ Run `[p]wikireload` to apply changes. See [CONFIGURATION.md](CONFIGURATION.md) f
 - **Role-based authorization** - Commands restricted to configured roles only
 - **Per-guild configuration** - Each server has isolated settings
 - **No exposed credentials** - All sensitive data stored in Red-Bot config
+
+### ShadyVoiceMod Cog
+- **Per-guild configuration** - Each server has isolated mute tracking
+- **Secure data storage** - All mute data stored in Red-Bot's encrypted config
+- **Permission-based access** - Commands restricted to moderators with appropriate permissions
+- **Role hierarchy enforcement** - Prevents moderators from muting higher-ranked users
 
 ---
 
@@ -300,6 +424,17 @@ This project is provided as-is for community use. See repository for license det
 ---
 
 ## Changelog
+
+### v2.2.0 (2025) - Voice Moderation System
+- **🎉 NEW:** ShadyVoiceMod cog for comprehensive voice channel moderation
+- **NEW:** Timed voice mutes with automatic expiry system
+- **NEW:** Interactive mute extension UI with modals
+- **NEW:** DM notifications for muted users
+- **NEW:** Comprehensive audit logging for all voice mod actions
+- **NEW:** Pending mute system for offline users
+- **NEW:** Background task for automatic mute expiry
+- **NEW:** Integrated authorization using Wiki cog's role system
+- Fixed critical syntax error in config identifier
 
 ### v2.1.0 (2025) - JSON Config System
 - **🎉 NEW:** Easy JSON configuration files - no Python needed!

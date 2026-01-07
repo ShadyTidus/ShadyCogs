@@ -56,5 +56,16 @@
     "timeout_message": "You have been timed out for {duration} minutes.",
     "no_permission_message": "I don't have permission to timeout you. Please check my role position and permissions.",
     "member_not_found": "Member not found."
+  },
+  "colors": {
+    "enabled": true,
+    "title": "Server Colors & Levels",
+    "how_to_earn": "**How do I get a color?**\nColors are earned automatically through activity! You gain XP by:\n• Sending messages in text channels\n• Spending time in voice channels (with at least 1 other person)",
+    "level_info_title": "**What do the colors mean?**",
+    "image_url": "https://shadydrop.mulveycreations.com/download/colors.png"
+  },
+  "noaccess": {
+    "enabled": true,
+    "text": "**Can't access a channel?**\nSome channels require specific roles to view. To get access:\n• Head to {customize_link} to grab the roles you need\n• Look for game-specific roles, community roles, or special interest roles\n• Once you have the role, the channel will appear!"
   }
 }

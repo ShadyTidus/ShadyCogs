@@ -347,6 +347,47 @@ class Wiki(commands.Cog):
         output = f"{text}\n{emoji} [{url_text}]({url})"
         await self.send_reply(ctx, output)
 
+    @commands.command()
+    async def colors(self, ctx):
+        """
+        Shows information about server colors/levels and how to earn them.
+        """
+        if not await self.delete_and_check(ctx):
+            return
+        colors_cfg = self.commands_config.get("colors", {})
+        if not colors_cfg.get("enabled", True):
+            return
+
+        title = colors_cfg.get("title", "Server Colors & Levels")
+        how_to_earn = colors_cfg.get("how_to_earn", "")
+        level_info_title = colors_cfg.get("level_info_title", "")
+        image_url = colors_cfg.get("image_url", "")
+
+        embed = discord.Embed(
+            title=title,
+            description=f"{how_to_earn}\n\n{level_info_title}",
+            color=discord.Color.blue()
+        )
+        if image_url:
+            embed.set_image(url=image_url)
+
+        await self.send_reply(ctx, embed=embed)
+
+    @commands.command()
+    async def noaccess(self, ctx):
+        """
+        Explains how to get access to locked channels.
+        """
+        if not await self.delete_and_check(ctx):
+            return
+        noaccess_cfg = self.commands_config.get("noaccess", {})
+        if not noaccess_cfg.get("enabled", True):
+            return
+
+        text = noaccess_cfg.get("text", "")
+        output = text.format(customize_link=self.channels_and_roles_link)
+        await self.send_reply(ctx, output)
+
     @commands.is_owner()
     @commands.command()
     async def wikireload(self, ctx):
@@ -464,6 +505,49 @@ class Wiki(commands.Cog):
             "Want to see which servers PA is currently hosting?\n"
             f"🖥️ [Check the Server List]({hosted_url})"
         )
+        await interaction.response.send_message(output)
+
+    @app_commands.command(name="colors", description="Show server colors/levels and how to earn them")
+    async def colors_slash(self, interaction: discord.Interaction):
+        """Shows information about server colors/levels and how to earn them."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        colors_cfg = self.commands_config.get("colors", {})
+        if not colors_cfg.get("enabled", True):
+            await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
+            return
+
+        title = colors_cfg.get("title", "Server Colors & Levels")
+        how_to_earn = colors_cfg.get("how_to_earn", "")
+        level_info_title = colors_cfg.get("level_info_title", "")
+        image_url = colors_cfg.get("image_url", "")
+
+        embed = discord.Embed(
+            title=title,
+            description=f"{how_to_earn}\n\n{level_info_title}",
+            color=discord.Color.blue()
+        )
+        if image_url:
+            embed.set_image(url=image_url)
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="noaccess", description="Explain how to get access to locked channels")
+    async def noaccess_slash(self, interaction: discord.Interaction):
+        """Explains how to get access to locked channels."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        noaccess_cfg = self.commands_config.get("noaccess", {})
+        if not noaccess_cfg.get("enabled", True):
+            await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
+            return
+
+        text = noaccess_cfg.get("text", "")
+        output = text.format(customize_link=self.channels_and_roles_link)
         await interaction.response.send_message(output)
 
     @app_commands.command(name="lfg", description="Detect game interest and direct to correct LFG channel")

@@ -561,11 +561,3 @@ class Wiki(commands.Cog):
 async def setup(bot):
     cog = Wiki(bot)
     await bot.add_cog(cog)
-    # Register slash commands
-    bot.tree.add_command(cog.host_slash)
-    bot.tree.add_command(cog.biweekly_slash)
-    bot.tree.add_command(cog.rule_slash)
-    bot.tree.add_command(cog.wow_slash)
-    bot.tree.add_command(cog.fafo_slash)
-    bot.tree.add_command(cog.hosted_slash)
-    bot.tree.add_command(cog.lfg_slash)

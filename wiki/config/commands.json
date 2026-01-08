@@ -67,5 +67,11 @@
   "noaccess": {
     "enabled": true,
     "text": "**Can't access a channel?**\nSome channels require specific roles to view. To get access:\n• Head to {customize_link} to grab the roles you need\n• Look for game-specific roles, community roles, or special interest roles\n• Once you have the role, the channel will appear!"
+  },
+  "promote": {
+    "enabled": true,
+    "title": "Promote Your Content",
+    "text": "We have a channel to promote your content. Here's what to do to access it:\n• Click on Parental Advisory and find \"Linked Roles\" as can be seen below\n• Add your socials in the pop-up window\n• You should now have access to the \"Streaming\" Category and are allowed to post your content in #promoteyourself",
+    "image_url": "https://shadydrop.mulveycreations.com/download/linked.png"
   }
 }

@@ -388,6 +388,31 @@ class Wiki(commands.Cog):
         output = text.format(customize_link=self.channels_and_roles_link)
         await self.send_reply(ctx, output)
 
+    @commands.command()
+    async def promote(self, ctx):
+        """
+        Explains how to access the content promotion channels via Linked Roles.
+        """
+        if not await self.delete_and_check(ctx):
+            return
+        promote_cfg = self.commands_config.get("promote", {})
+        if not promote_cfg.get("enabled", True):
+            return
+
+        title = promote_cfg.get("title", "Promote Your Content")
+        text = promote_cfg.get("text", "")
+        image_url = promote_cfg.get("image_url", "")
+
+        embed = discord.Embed(
+            title=title,
+            description=text,
+            color=discord.Color.blue()
+        )
+        if image_url:
+            embed.set_image(url=image_url)
+
+        await self.send_reply(ctx, embed=embed)
+
     @commands.is_owner()
     @commands.command()
     async def wikireload(self, ctx):
@@ -549,6 +574,32 @@ class Wiki(commands.Cog):
         text = noaccess_cfg.get("text", "")
         output = text.format(customize_link=self.channels_and_roles_link)
         await interaction.response.send_message(output)
+
+    @app_commands.command(name="promote", description="Explain how to access content promotion channels")
+    async def promote_slash(self, interaction: discord.Interaction):
+        """Explains how to access the content promotion channels via Linked Roles."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        promote_cfg = self.commands_config.get("promote", {})
+        if not promote_cfg.get("enabled", True):
+            await interaction.response.send_message("This command is currently disabled.", ephemeral=True)
+            return
+
+        title = promote_cfg.get("title", "Promote Your Content")
+        text = promote_cfg.get("text", "")
+        image_url = promote_cfg.get("image_url", "")
+
+        embed = discord.Embed(
+            title=title,
+            description=text,
+            color=discord.Color.blue()
+        )
+        if image_url:
+            embed.set_image(url=image_url)
+
+        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="lfg", description="Detect game interest and direct to correct LFG channel")
     @app_commands.describe(

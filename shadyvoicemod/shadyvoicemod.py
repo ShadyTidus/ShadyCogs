@@ -321,21 +321,24 @@ class ShadyVoiceMod(commands.Cog):
                         continue
 
                     active_mutes = guild_data.get("active_mutes", {})
-                    expired_users = []
 
                     for user_id_str, mute_data in active_mutes.items():
                         expires_at = datetime.fromisoformat(mute_data["expires_at"])
 
+                        # Skip if already marked as expired
+                        if mute_data.get("expired", False):
+                            continue
+
                         if datetime.now(timezone.utc) >= expires_at:
-                            expired_users.append(user_id_str)
                             member = guild.get_member(int(user_id_str))
 
-                            if member:
-                                # Remove mute if they're in voice
-                                if member.voice:
-                                    await self.remove_mute(member)
+                            # Mark as expired
+                            async with self.config.guild(guild).active_mutes() as mutes:
+                                if user_id_str in mutes:
+                                    mutes[user_id_str]["expired"] = True
 
-                                # DM user
+                            if member:
+                                # DM user immediately (regardless of voice state)
                                 await self.dm_user(
                                     member,
                                     f"Your voice mute in **{guild.name}** has been lifted. "
@@ -353,15 +356,24 @@ class ShadyVoiceMod(commands.Cog):
                                     color=discord.Color.green(),
                                 )
 
-                    # Clean up expired mutes from config
-                    if expired_users:
-                        async with self.config.guild(guild).active_mutes() as mutes:
-                            for user_id_str in expired_users:
-                                mutes.pop(user_id_str, None)
+                                # If in voice, remove mute now and clean up
+                                if member.voice:
+                                    await self.remove_mute(member)
+                                    async with self.config.guild(guild).active_mutes() as mutes:
+                                        mutes.pop(user_id_str, None)
+                                # If not in voice but was never applied, clean up now
+                                elif not mute_data.get("applied", False):
+                                    async with self.config.guild(guild).active_mutes() as mutes:
+                                        mutes.pop(user_id_str, None)
+                                # If not in voice but was applied, keep in config for removal on next join
+                            else:
+                                # User not found, clean up
+                                async with self.config.guild(guild).active_mutes() as mutes:
+                                    mutes.pop(user_id_str, None)
 
             except Exception as e:
-                # Log but don't crash the loop
-                pass
+                # Log errors but don't crash the loop
+                log.exception(f"Error in check_expired_mutes task: {e}")
 
             await asyncio.sleep(30)
 
@@ -391,14 +403,18 @@ class ShadyVoiceMod(commands.Cog):
         mute_data = active_mutes[user_id_str]
 
         # Check if mute has expired
-        expires_at = datetime.fromisoformat(mute_data["expires_at"])
-        if datetime.now(timezone.utc) >= expires_at:
-            # Clean up expired mute
+        if mute_data.get("expired", False):
+            # Mute expired and user joined voice
+            # If it was applied at some point, remove it now
+            if mute_data.get("applied", False):
+                await self.remove_mute(member)
+
+            # Clean up
             async with self.config.guild(member.guild).active_mutes() as mutes:
                 mutes.pop(user_id_str, None)
             return
 
-        # Check if already applied (Discord persists mutes, but just in case)
+        # Mute is still active - check if already applied
         if mute_data.get("applied", False):
             return
 
@@ -490,6 +506,7 @@ class ShadyVoiceMod(commands.Cog):
             "reason": reason,
             "expires_at": expires_at.isoformat(),
             "applied": False,
+            "expired": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 

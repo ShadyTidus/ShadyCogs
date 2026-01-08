@@ -15,6 +15,7 @@ from redbot.core import commands, Config, checks
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import humanize_timedelta, pagify
 from redbot.core.utils.predicates import MessagePredicate
+from discord import app_commands
 
 log = logging.getLogger("red.shadycogs.shadyvoicemod")
 
@@ -72,11 +73,15 @@ class ExtendMuteModal(discord.ui.Modal, title="Extend Voice Mute"):
             mutes[str(self.target.id)]["extended_by"] = interaction.user.id
 
         # DM the user about extension
-        await self.cog.dm_user(
+        await self.cog.dm_user_embed(
             self.target,
-            f"Your voice mute in **{interaction.guild.name}** has been extended.\n"
-            f"**Additional Reason:** {self.additional_reason}\n"
-            f"**New Expiry:** <t:{int(new_expiry.timestamp())}:R>",
+            "🔇 Voice Mute Extended",
+            f"Your voice mute in **{interaction.guild.name}** has been extended.",
+            color=discord.Color.orange(),
+            fields=[
+                {"name": "Additional Reason", "value": str(self.additional_reason), "inline": False},
+                {"name": "New Expiry", "value": f"<t:{int(new_expiry.timestamp())}:F> (<t:{int(new_expiry.timestamp())}:R>)", "inline": False},
+            ],
         )
 
         # Audit log
@@ -92,6 +97,200 @@ class ExtendMuteModal(discord.ui.Modal, title="Extend Voice Mute"):
 
         await interaction.response.send_message(
             f"Extended voice mute for {self.target.mention}. New expiry: <t:{int(new_expiry.timestamp())}:R>",
+            ephemeral=True,
+        )
+
+
+class VoiceMuteModal(discord.ui.Modal, title="Voice Mute User"):
+    """Modal for voice muting a user."""
+
+    duration = discord.ui.TextInput(
+        label="Duration",
+        placeholder="e.g., 30m, 2h, 1d, 1h30m",
+        required=True,
+        max_length=20,
+    )
+    reason = discord.ui.TextInput(
+        label="Reason",
+        style=discord.TextStyle.paragraph,
+        placeholder="Why is this user being voice muted?",
+        required=True,
+        max_length=500,
+    )
+
+    def __init__(self, cog: "ShadyVoiceMod", target: discord.Member, moderator: discord.Member):
+        super().__init__()
+        self.cog = cog
+        self.target = target
+        self.moderator = moderator
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Parse duration
+        delta = await self.cog.parse_duration(str(self.duration))
+        if delta is None:
+            await interaction.response.send_message(
+                "Invalid duration format. Use formats like `30m`, `2h`, `1d`, or combine them like `1h30m`.",
+                ephemeral=True,
+            )
+            return
+
+        # Check for existing mute
+        active_mutes = await self.cog.config.guild(interaction.guild).active_mutes()
+        user_id_str = str(self.target.id)
+
+        if user_id_str in active_mutes:
+            current_mute = active_mutes[user_id_str]
+            expires_at = datetime.fromisoformat(current_mute["expires_at"])
+            original_mod = interaction.guild.get_member(current_mute["mod_id"])
+            original_mod_name = original_mod.mention if original_mod else f"Unknown (ID: {current_mute['mod_id']})"
+
+            embed = discord.Embed(
+                title="⚠️ User Already Voice Muted",
+                description=(
+                    f"**{self.target.mention}** is already voice muted.\n\n"
+                    f"**Original Moderator:** {original_mod_name}\n"
+                    f"**Reason:** {current_mute['reason']}\n"
+                    f"**Expires:** <t:{int(expires_at.timestamp())}:R>"
+                ),
+                color=discord.Color.yellow(),
+            )
+
+            view = StackedMuteView(self.cog, self.target, current_mute)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            return
+
+        # Calculate expiry
+        expires_at = datetime.now(timezone.utc) + delta
+
+        # Store mute data
+        mute_data = {
+            "mod_id": self.moderator.id,
+            "reason": str(self.reason),
+            "expires_at": expires_at.isoformat(),
+            "applied": False,
+            "expired": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Try to apply immediately if in voice
+        if self.target.voice:
+            success = await self.cog.apply_mute(self.target)
+            if success:
+                mute_data["applied"] = True
+            else:
+                await interaction.response.send_message(
+                    "Failed to apply voice mute. Check my permissions.",
+                    ephemeral=True,
+                )
+                return
+
+        # Save to config
+        async with self.cog.config.guild(interaction.guild).active_mutes() as mutes:
+            mutes[user_id_str] = mute_data
+
+        # DM the user
+        dm_success = await self.cog.dm_user_embed(
+            self.target,
+            "🔇 You Have Been Voice Muted",
+            f"You have been voice muted in **{interaction.guild.name}**.\n\nYou will not be able to speak in voice channels until this mute expires or is lifted.",
+            color=discord.Color.red(),
+            fields=[
+                {"name": "Reason", "value": str(self.reason), "inline": False},
+                {"name": "Duration", "value": humanize_timedelta(timedelta=delta), "inline": True},
+                {"name": "Expires", "value": f"<t:{int(expires_at.timestamp())}:F> (<t:{int(expires_at.timestamp())}:R>)", "inline": True},
+            ],
+        )
+
+        # Audit log
+        await self.cog.send_audit_log(
+            interaction.guild,
+            "Voice Mute Issued",
+            self.target,
+            self.moderator,
+            str(self.reason),
+            expires_at,
+        )
+
+        # Confirmation
+        status = "applied" if mute_data["applied"] else "pending (will apply when user joins voice)"
+        dm_status = "" if dm_success else "\n⚠️ Could not DM user."
+
+        embed = discord.Embed(
+            title="🔇 Voice Mute Issued",
+            color=discord.Color.red(),
+        )
+        embed.add_field(name="User", value=self.target.mention, inline=True)
+        embed.add_field(name="Duration", value=humanize_timedelta(timedelta=delta), inline=True)
+        embed.add_field(name="Expires", value=f"<t:{int(expires_at.timestamp())}:R>", inline=True)
+        embed.add_field(name="Reason", value=str(self.reason), inline=False)
+        embed.add_field(name="Status", value=status, inline=False)
+
+        if dm_status:
+            embed.add_field(name="Notice", value=dm_status, inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class VoiceUnmuteModal(discord.ui.Modal, title="Remove Voice Mute"):
+    """Modal for removing a voice mute."""
+
+    reason = discord.ui.TextInput(
+        label="Reason",
+        style=discord.TextStyle.paragraph,
+        placeholder="Why is this mute being removed early?",
+        required=False,
+        max_length=500,
+        default="Manual unmute",
+    )
+
+    def __init__(self, cog: "ShadyVoiceMod", target: discord.Member, moderator: discord.Member):
+        super().__init__()
+        self.cog = cog
+        self.target = target
+        self.moderator = moderator
+
+    async def on_submit(self, interaction: discord.Interaction):
+        active_mutes = await self.cog.config.guild(interaction.guild).active_mutes()
+        user_id_str = str(self.target.id)
+
+        if user_id_str not in active_mutes:
+            await interaction.response.send_message(
+                f"{self.target.mention} does not have an active voice mute.",
+                ephemeral=True,
+            )
+            return
+
+        # Remove from config
+        async with self.cog.config.guild(interaction.guild).active_mutes() as mutes:
+            mutes.pop(user_id_str, None)
+
+        # Remove Discord mute if in voice
+        if self.target.voice:
+            await self.cog.remove_mute(self.target)
+
+        # DM user
+        await self.cog.dm_user_embed(
+            self.target,
+            "✅ Voice Mute Removed",
+            f"Your voice mute in **{interaction.guild.name}** has been lifted.\n\nYou may now speak in voice channels again.",
+            color=discord.Color.green(),
+            fields=[
+                {"name": "Reason", "value": str(self.reason) or "Manual unmute", "inline": False},
+            ],
+        )
+
+        # Audit log
+        await self.cog.send_audit_log(
+            interaction.guild,
+            "Voice Mute Removed",
+            self.target,
+            self.moderator,
+            str(self.reason) or "Manual unmute",
+            color=discord.Color.green(),
+        )
+
+        await interaction.response.send_message(
+            f"✅ Voice mute removed from {self.target.mention}.",
             ephemeral=True,
         )
 
@@ -244,6 +443,37 @@ class ShadyVoiceMod(commands.Cog):
         except (discord.Forbidden, discord.HTTPException):
             return False
 
+    async def dm_user_embed(
+        self,
+        user: discord.Member,
+        title: str,
+        description: str,
+        color: discord.Color = discord.Color.blue(),
+        fields: Optional[list] = None,
+    ) -> bool:
+        """Attempt to DM a user with an embed. Returns True if successful."""
+        try:
+            embed = discord.Embed(
+                title=title,
+                description=description,
+                color=color,
+                timestamp=datetime.now(timezone.utc),
+            )
+
+            if fields:
+                for field in fields:
+                    embed.add_field(
+                        name=field.get("name", ""),
+                        value=field.get("value", ""),
+                        inline=field.get("inline", False),
+                    )
+
+            embed.set_footer(text=f"Server: {user.guild.name}")
+            await user.send(embed=embed)
+            return True
+        except (discord.Forbidden, discord.HTTPException):
+            return False
+
     async def send_audit_log(
         self,
         guild: discord.Guild,
@@ -339,10 +569,11 @@ class ShadyVoiceMod(commands.Cog):
 
                             if member:
                                 # DM user immediately (regardless of voice state)
-                                await self.dm_user(
+                                await self.dm_user_embed(
                                     member,
-                                    f"Your voice mute in **{guild.name}** has been lifted. "
-                                    f"You may now speak in voice channels again.",
+                                    "✅ Voice Mute Expired",
+                                    f"Your voice mute in **{guild.name}** has expired.\n\nYou may now speak in voice channels again.",
+                                    color=discord.Color.green(),
                                 )
 
                                 # Audit log
@@ -525,13 +756,16 @@ class ShadyVoiceMod(commands.Cog):
             mutes[user_id_str] = mute_data
 
         # DM the user
-        dm_success = await self.dm_user(
+        dm_success = await self.dm_user_embed(
             member,
-            f"You have been voice muted in **{ctx.guild.name}**.\n"
-            f"**Reason:** {reason}\n"
-            f"**Duration:** {humanize_timedelta(timedelta=delta)}\n"
-            f"**Expires:** <t:{int(expires_at.timestamp())}:R>\n\n"
-            f"You will not be able to speak in voice channels until this mute expires or is lifted.",
+            "🔇 You Have Been Voice Muted",
+            f"You have been voice muted in **{ctx.guild.name}**.\n\nYou will not be able to speak in voice channels until this mute expires or is lifted.",
+            color=discord.Color.red(),
+            fields=[
+                {"name": "Reason", "value": reason, "inline": False},
+                {"name": "Duration", "value": humanize_timedelta(timedelta=delta), "inline": True},
+                {"name": "Expires", "value": f"<t:{int(expires_at.timestamp())}:F> (<t:{int(expires_at.timestamp())}:R>)", "inline": True},
+            ],
         )
 
         # Audit log
@@ -592,11 +826,14 @@ class ShadyVoiceMod(commands.Cog):
             await self.remove_mute(member)
 
         # DM user
-        await self.dm_user(
+        await self.dm_user_embed(
             member,
-            f"Your voice mute in **{ctx.guild.name}** has been lifted early.\n"
-            f"**Reason:** {reason}\n\n"
-            f"You may now speak in voice channels again.",
+            "✅ Voice Mute Removed",
+            f"Your voice mute in **{ctx.guild.name}** has been lifted.\n\nYou may now speak in voice channels again.",
+            color=discord.Color.green(),
+            fields=[
+                {"name": "Reason", "value": reason, "inline": False},
+            ],
         )
 
         # Audit log
@@ -736,3 +973,172 @@ class ShadyVoiceMod(commands.Cog):
         embed.set_footer(text=f"v{self.__version__} by {self.__author__}")
 
         await ctx.send(embed=embed)
+
+    # -------------------------------------------------------------------------
+    # Slash Commands
+    # -------------------------------------------------------------------------
+
+    @app_commands.command(name="vmute", description="Voice mute a user for a specified duration")
+    @app_commands.describe(member="The user to voice mute")
+    @app_commands.guild_only()
+    async def vmute_slash(self, interaction: discord.Interaction, member: discord.Member):
+        """Voice mute a user with a modal for duration and reason."""
+        # Check authorization
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message(
+                "You do not have permission to use this command.",
+                ephemeral=True,
+            )
+            return
+
+        # Can't mute yourself
+        if member.id == interaction.user.id:
+            await interaction.response.send_message(
+                "You cannot voice mute yourself.",
+                ephemeral=True,
+            )
+            return
+
+        # Can't mute bots
+        if member.bot:
+            await interaction.response.send_message(
+                "You cannot voice mute bots.",
+                ephemeral=True,
+            )
+            return
+
+        # Check hierarchy
+        if isinstance(interaction.user, discord.Member):
+            if member.top_role >= interaction.user.top_role and interaction.user != interaction.guild.owner:
+                await interaction.response.send_message(
+                    "You cannot voice mute someone with an equal or higher role.",
+                    ephemeral=True,
+                )
+                return
+
+        # Show modal
+        modal = VoiceMuteModal(self, member, interaction.user)
+        await interaction.response.send_modal(modal)
+
+    @app_commands.command(name="vunmute", description="Remove a voice mute from a user")
+    @app_commands.describe(member="The user to unmute")
+    @app_commands.guild_only()
+    async def vunmute_slash(self, interaction: discord.Interaction, member: discord.Member):
+        """Remove a voice mute with a modal for the reason."""
+        # Check authorization
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message(
+                "You do not have permission to use this command.",
+                ephemeral=True,
+            )
+            return
+
+        # Check if user has an active mute
+        active_mutes = await self.config.guild(interaction.guild).active_mutes()
+        user_id_str = str(member.id)
+
+        if user_id_str not in active_mutes:
+            await interaction.response.send_message(
+                f"{member.mention} does not have an active voice mute.",
+                ephemeral=True,
+            )
+            return
+
+        # Show modal
+        modal = VoiceUnmuteModal(self, member, interaction.user)
+        await interaction.response.send_modal(modal)
+
+    @app_commands.command(name="vmutes", description="List all active voice mutes")
+    @app_commands.guild_only()
+    async def vmutes_slash(self, interaction: discord.Interaction):
+        """List all active and pending voice mutes."""
+        # Check authorization
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message(
+                "You do not have permission to use this command.",
+                ephemeral=True,
+            )
+            return
+
+        active_mutes = await self.config.guild(interaction.guild).active_mutes()
+
+        if not active_mutes:
+            await interaction.response.send_message("No active voice mutes.", ephemeral=True)
+            return
+
+        lines = []
+        now = datetime.now(timezone.utc)
+
+        for user_id_str, mute_data in active_mutes.items():
+            member = interaction.guild.get_member(int(user_id_str))
+            expires_at = datetime.fromisoformat(mute_data["expires_at"])
+            mod = interaction.guild.get_member(mute_data["mod_id"])
+
+            # Skip expired (cleanup will handle these)
+            if now >= expires_at:
+                continue
+
+            user_str = member.mention if member else f"Unknown ({user_id_str})"
+            mod_str = mod.display_name if mod else f"Unknown"
+            status = "✅ Applied" if mute_data["applied"] else "⏳ Pending"
+
+            lines.append(
+                f"**{user_str}**\n"
+                f"  └ By: {mod_str} | Expires: <t:{int(expires_at.timestamp())}:R> | {status}\n"
+                f"  └ Reason: {mute_data['reason'][:50]}{'...' if len(mute_data['reason']) > 50 else ''}"
+            )
+
+        if not lines:
+            await interaction.response.send_message("No active voice mutes.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🔇 Active Voice Mutes",
+            description="\n\n".join(lines),
+            color=discord.Color.orange(),
+        )
+        embed.set_footer(text=f"Total: {len(lines)} mute(s)")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="vmodinfo", description="Show ShadyVoiceMod information and commands")
+    @app_commands.guild_only()
+    async def vmodinfo_slash(self, interaction: discord.Interaction):
+        """Show ShadyVoiceMod information and commands."""
+        embed = discord.Embed(
+            title="🔇 ShadyVoiceMod",
+            description="Voice moderation with timed mutes, DM notifications, and audit logging.",
+            color=discord.Color.blurple(),
+        )
+
+        embed.add_field(
+            name="Slash Commands",
+            value=(
+                "`/vmute <user>` - Voice mute a user (opens modal)\n"
+                "`/vunmute <user>` - Remove a voice mute (opens modal)\n"
+                "`/vmutes` - List active voice mutes\n"
+                "`/vmodinfo` - This help message"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Prefix Commands",
+            value=(
+                f"`{interaction.client.command_prefix if hasattr(interaction.client, 'command_prefix') else '[p]'}vmute <user> <duration> <reason>` - Voice mute a user\n"
+                f"`{interaction.client.command_prefix if hasattr(interaction.client, 'command_prefix') else '[p]'}vunmute <user> [reason]` - Remove a voice mute\n"
+                f"`{interaction.client.command_prefix if hasattr(interaction.client, 'command_prefix') else '[p]'}vmutes` - List active voice mutes\n"
+                f"`{interaction.client.command_prefix if hasattr(interaction.client, 'command_prefix') else '[p]'}vmodset` - Configure settings"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Duration Formats",
+            value="`30s` (seconds), `5m` (minutes), `2h` (hours), `1d` (days), `1w` (weeks)\nCombine: `1h30m`, `2d12h`",
+            inline=False,
+        )
+
+        embed.set_footer(text=f"v{self.__version__} by {self.__author__}")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)

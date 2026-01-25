@@ -1,0 +1,1 @@
+from .shadycheatsheet import setup

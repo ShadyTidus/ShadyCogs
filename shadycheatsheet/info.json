@@ -1,0 +1,14 @@
+{
+    "author": ["ShadyTidus"],
+    "install_msg": "Thanks for installing ShadyCheatSheet!\n\nUse `/skillcheatsheet` to view the full D&D 5e skill check guide.\nUse slash commands for individual sections.",
+    "name": "ShadyCheatSheet",
+    "short": "D&D 5e skill check reference guide for DMs",
+    "description": "A comprehensive cheat sheet for D&D 5e skill checks. Helps new DMs understand when to call for skill checks, how to set DCs, contested checks, group checks, and common skill confusions. Includes quick reference tables and pro tips.",
+    "end_user_data_statement": "This cog does not store any user data.",
+    "tags": ["dnd", "dungeons-and-dragons", "5e", "reference", "dm-tools", "gaming"],
+    "requirements": [],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}

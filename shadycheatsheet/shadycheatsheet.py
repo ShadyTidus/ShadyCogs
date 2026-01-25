@@ -859,13 +859,3 @@ async def setup(bot: Red):
     """Add the cog to the bot."""
     cog = ShadyCheatSheet(bot)
     await bot.add_cog(cog)
-    
-    # Register slash commands
-    bot.tree.add_command(cog.full_guide)
-    bot.tree.add_command(cog.when_to_call)
-    bot.tree.add_command(cog.setting_dcs)
-    bot.tree.add_command(cog.contested_checks)
-    bot.tree.add_command(cog.group_checks)
-    bot.tree.add_command(cog.skill_confusions)
-    bot.tree.add_command(cog.skill_reference)
-    bot.tree.add_command(cog.pro_tips)

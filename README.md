@@ -13,6 +13,9 @@ Comprehensive community management tool with slash commands for rules, hosting g
 ### 3. ShadyVoiceMod - Voice Moderation System
 Advanced voice moderation with timed voice mutes, automatic expiry tracking, DM notifications, and comprehensive audit logging.
 
+### 4. ShadyCheatSheet - D&D 5e Skill Check Reference Guide
+Comprehensive DM reference guide for D&D 5e skill checks. Includes when to call for checks, DC guidelines, contested checks, group checks, common skill confusions, and pro tips. Works in DMs and servers.
+
 ---
 
 ## Installation
@@ -29,16 +32,18 @@ Advanced voice moderation with timed voice mutes, automatic expiry tracking, DM 
 [p]cog install ShadyCogs karaoke
 [p]cog install ShadyCogs wiki
 [p]cog install ShadyCogs shadyvoicemod
+[p]cog install ShadyCogs shadycheatsheet
 [p]load karaoke
 [p]load wiki
 [p]load shadyvoicemod
+[p]load shadycheatsheet
 ```
 
 ### Manual Installation
 
 1. Clone this repository to your Red-Bot cogs folder
 2. Install dependencies: `pip install -r requirements.txt`
-3. Load the cogs: `[p]load karaoke`, `[p]load wiki`, and `[p]load shadyvoicemod`
+3. Load the cogs: `[p]load karaoke`, `[p]load wiki`, `[p]load shadyvoicemod`, and `[p]load shadycheatsheet`
 
 ---
 
@@ -331,6 +336,106 @@ When a moderator tries to mute an already-muted user, an interactive UI appears 
 
 ---
 
+## ShadyCheatSheet Cog Setup
+
+### Overview
+
+ShadyCheatSheet provides a comprehensive D&D 5e skill check reference guide for DMs. Perfect for new and experienced DMs who need quick access to skill check guidelines, DC recommendations, and common skill confusions.
+
+### Authorization System
+
+**In Guilds:** Commands are restricted to users with roles listed in `wiki/config/roles.json`, server administrators, or the server owner.
+
+**In DMs:** Anyone can use all commands - perfect for quick reference during game prep or sessions!
+
+### No Configuration Required
+
+ShadyCheatSheet works out of the box! Just load the cog and start using commands.
+
+### Available Commands
+
+All commands use the `/` slash command prefix:
+
+**Main Commands:**
+- `/skillcheatsheet` - Complete guide with all sections (6 embeds)
+- `/whentocall` - When to call for skill checks vs when not to
+- `/settingdcs` - DC reference table and guidelines
+- `/contestedchecks` - Opposed rolls (Stealth vs Perception, social contests, etc.)
+- `/groupchecks` - Party cooperation checks (when to use and when not to)
+- `/skillconfusions` - Common skill confusions explained (Athletics vs Acrobatics, etc.)
+- `/skillreference` - Complete skill list organized by category
+- `/protips` - DM best practices and tips
+
+### Usage Examples
+
+**Quick Reference in DM:**
+```
+/skillcheatsheet
+```
+Sends the full guide - perfect for prep or during sessions!
+
+**Specific Question:**
+```
+/skillconfusions
+```
+Shows detailed explanations of Athletics vs Acrobatics, Perception vs Investigation, etc.
+
+**Setting a DC:**
+```
+/settingdcs
+```
+Reference table: DC 5 (very easy) to DC 30 (nearly impossible)
+
+### What's Covered
+
+**When to Call for Checks:**
+- Don't call: Trivial tasks, no consequences, impossible tasks
+- Do call: Meaningful stakes, time pressure, real risk
+
+**Setting DCs:**
+- DC 5: Very Easy (climb a knotted rope)
+- DC 10: Easy (hear loud conversation through door)
+- DC 15: Medium (pick simple lock, track footprints)
+- DC 20: Hard (climb slippery cliff)
+- DC 25: Very Hard (swim in stormy sea)
+- DC 30: Nearly Impossible (convince king to abdicate)
+
+**Contested Checks:**
+- Stealth vs Perception (with environmental modifiers)
+- Creature abilities that counter stealth
+- Grapple/shove mechanics
+- Social contests (when NPCs resist)
+
+**Group Checks:**
+- When to use (party sneaking together, rowing boat)
+- How they work (half or more succeed = group succeeds)
+- When NOT to use (individual tasks, one person doing the work)
+
+**Common Confusions:**
+- STR check vs Athletics
+- Athletics vs Acrobatics
+- Perception vs Investigation
+- Insight vs Perception
+- Survival vs Nature
+- Persuasion vs Deception vs Intimidation
+
+**Pro Tips:**
+- Advantage/Disadvantage is better than +5/-5
+- Fail forward (complications, not dead stops)
+- Contest or DC? (active opposition vs difficulty)
+- Use passive perception to maintain tension
+
+### Features
+- ✅ Works in DMs and servers
+- ✅ No configuration required
+- ✅ Clean, organized embeds
+- ✅ Multiple viewing options (full guide or specific sections)
+- ✅ Role-based authorization in guilds
+- ✅ Covers all common DM skill check questions
+- ✅ Quick reference tables and examples
+
+---
+
 ## Security Features
 
 ### Karaoke Cog
@@ -348,6 +453,11 @@ When a moderator tries to mute an already-muted user, an interactive UI appears 
 - **Secure data storage** - All mute data stored in Red-Bot's encrypted config
 - **Permission-based access** - Commands restricted to moderators with appropriate permissions
 - **Role hierarchy enforcement** - Prevents moderators from muting higher-ranked users
+
+### ShadyCheatSheet Cog
+- **No data storage** - Reference guide only, stores no user or guild data
+- **DM-friendly** - Works in private messages for personal reference
+- **Role-based in guilds** - Uses Wiki cog's authorization system for server use
 
 ---
 
@@ -424,6 +534,15 @@ This project is provided as-is for community use. See repository for license det
 ---
 
 ## Changelog
+
+### v2.3.0 (2025) - D&D Reference Guide
+- **🎉 NEW:** ShadyCheatSheet cog for D&D 5e skill check reference
+- **NEW:** 8 slash commands covering all skill check scenarios
+- **NEW:** Works in DMs and servers (DM-friendly for game prep)
+- **NEW:** Complete coverage: when to call checks, DCs, contested checks, group checks
+- **NEW:** Common skill confusions explained (Athletics vs Acrobatics, etc.)
+- **NEW:** Pro tips for running smooth skill checks
+- Integrated authorization using Wiki cog's role system
 
 ### v2.2.0 (2025) - Voice Moderation System
 - **🎉 NEW:** ShadyVoiceMod cog for comprehensive voice channel moderation

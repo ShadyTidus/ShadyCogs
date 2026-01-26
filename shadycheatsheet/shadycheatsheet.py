@@ -855,11 +855,6 @@ class ShadyCheatSheet(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-
-async def setup(bot: Red):
-    """Add the cog to the bot."""
-    cog = ShadyCheatSheet(bot)
-    await bot.add_cog(cog)
     @app_commands.command(name="masteries", description="D&D 5e weapon mastery properties (2024 rules)")
     async def masteries(self, interaction: discord.Interaction):
         """Display weapon mastery properties from 2024 rules."""
@@ -964,4 +959,10 @@ async def setup(bot: Red):
         embeds.append(embed2)
 
         await interaction.response.send_message(embeds=embeds)
+
+
+async def setup(bot: Red):
+    """Add the cog to the bot."""
+    cog = ShadyCheatSheet(bot)
+    await bot.add_cog(cog)
 

@@ -233,7 +233,8 @@ class ShadyCheatSheet(commands.Cog):
                 "`/groupchecks` - Party working together\n"
                 "`/skillconfusions` - Common mistakes\n"
                 "`/skillreference` - Complete skill list\n"
-                "`/protips` - DM best practices"
+                "`/protips` - DM best practices\n"
+                "`/masteries` - Weapon mastery properties (2024)"
             ),
             inline=False,
         )
@@ -859,3 +860,108 @@ async def setup(bot: Red):
     """Add the cog to the bot."""
     cog = ShadyCheatSheet(bot)
     await bot.add_cog(cog)
+    @app_commands.command(name="masteries", description="D&D 5e weapon mastery properties (2024 rules)")
+    async def masteries(self, interaction: discord.Interaction):
+        """Display weapon mastery properties from 2024 rules."""
+        if not self.is_authorized_interaction(interaction):
+            await interaction.response.send_message(
+                "You do not have permission to use this command.",
+                ephemeral=True,
+            )
+            return
+
+        embeds = []
+
+        # Embed 1: Introduction and First 4 Masteries
+        embed1 = discord.Embed(
+            title="⚔️ Weapon Mastery Properties (2024)",
+            description="Special properties that enhance weapons when you have proficiency mastery.",
+            color=discord.Color.red(),
+        )
+        embed1.add_field(
+            name="🪓 Cleave",
+            value=(
+                "**Weapons:** Greataxe, Halberd\n\n"
+                "Hit multiple opponents with one swing! When you hit a creature with a Melee Weapon Attack, "
+                "you can make another Melee Attack Roll against a second creature within 5ft of the first. "
+                "On a hit, the second target takes weapon damage without Ability Modifier (unless negative). "
+                "Perfect for crowd control!"
+            ),
+            inline=False,
+        )
+        embed1.add_field(
+            name="✨ Graze",
+            value=(
+                "**Weapons:** Glaive, Greatsword\n\n"
+                "Never waste a missed attack! When your weapon misses an attack, deal damage equal to your "
+                "Ability Modifier used for the Attack Roll. Scales with your Ability Modifier increases."
+            ),
+            inline=False,
+        )
+        embed1.add_field(
+            name="⚡ Nick",
+            value=(
+                "**Weapons:** Dagger, Light Hammer, Sickle, Scimitar\n\n"
+                "Make an additional attack as part of your Attack Action when wielding light weapons in both hands. "
+                "**Important:** This does NOT allow a third bonus action attack - it frees up your bonus action "
+                "for spells or other tactics!"
+            ),
+            inline=False,
+        )
+        embed1.add_field(
+            name="💨 Push",
+            value=(
+                "**Weapons:** Greatclub, Pike, Warhammer, Heavy Crossbow\n\n"
+                "Push a Large or smaller creature up to 10 feet away in a straight line. Perfect for creating "
+                "breathing room for ranged attacks or disengaging."
+            ),
+            inline=False,
+        )
+        embeds.append(embed1)
+
+        # Embed 2: Remaining 4 Masteries
+        embed2 = discord.Embed(
+            title="⚔️ Weapon Mastery Properties (cont.)",
+            color=discord.Color.red(),
+        )
+        embed2.add_field(
+            name="🎯 Sap",
+            value=(
+                "**Weapons:** Mace, Spear, Flail, Longsword, Morningstar, War Pick\n\n"
+                "Landing an attack inflicts disadvantage on the enemy's next Attack Roll before the start "
+                "of your next turn. Excellent for characters who go early in initiative!"
+            ),
+            inline=False,
+        )
+        embed2.add_field(
+            name="🐌 Slow",
+            value=(
+                "**Weapons:** Club, Javelin, Light Crossbow, Sling, Whip, Longbow, Musket\n\n"
+                "Reduce a creature's Speed by 10 feet until the start of your next turn when you deal damage "
+                "with this weapon. Buy time for ranged party members and keep enemies at bay!"
+            ),
+            inline=False,
+        )
+        embed2.add_field(
+            name="⬇️ Topple",
+            value=(
+                "**Weapons:** Quarterstaff, Battleaxe, Lance, Maul, Trident\n\n"
+                "Force a creature to make a Constitution saving throw or fall Prone on a successful weapon attack. "
+                "Perfect for setting up advantage on your next attack!"
+            ),
+            inline=False,
+        )
+        embed2.add_field(
+            name="🎪 Vex",
+            value=(
+                "**Weapons:** Handaxe, Dart, Shortbow, Rapier, Shortsword, Blowgun, Hand Crossbow, Pistol\n\n"
+                "Gain advantage on your next attack roll against the same target after hitting with a Vex weapon. "
+                "Great for chaining attacks and essential for sneak attack or burst damage builds!"
+            ),
+            inline=False,
+        )
+        embed2.set_footer(text="2024 Player's Handbook | Use /skillcheatsheet for skill check reference")
+        embeds.append(embed2)
+
+        await interaction.response.send_message(embeds=embeds)
+

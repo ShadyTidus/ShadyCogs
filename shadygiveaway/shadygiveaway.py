@@ -394,8 +394,9 @@ class ShadyGiveaway(commands.Cog):
                     now = datetime.now(timezone.utc).timestamp()
                     
                     for giveaway_id, giveaway in list(giveaways.items()):
-                        if not giveaway["ended"] and now >= giveaway["end_timestamp"]:
-                            # Giveaway has ended, pick winner
+                        # Check if time expired and not picking winners yet
+                        if not giveaway.get("picking_winners", False) and not giveaway["ended"] and now >= giveaway["end_timestamp"]:
+                            # Giveaway time expired, start picking winners
                             await self.end_giveaway(guild, giveaway_id, giveaway)
                             
             except asyncio.CancelledError:
@@ -404,29 +405,31 @@ class ShadyGiveaway(commands.Cog):
                 log.error(f"Error in giveaway check task: {e}", exc_info=True)
 
     async def end_giveaway(self, guild: discord.Guild, giveaway_id: str, giveaway: Dict[str, Any]):
-        """End a giveaway and pick winners."""
-        # Mark as ended
+        """End a giveaway and start picking winners."""
+        # Mark as picking winners (NOT ended yet)
         async with self.config.guild(guild).giveaways() as giveaways:
-            giveaways[giveaway_id]["ended"] = True
+            giveaways[giveaway_id]["picking_winners"] = True
         
-        # Update message
+        # Update message to show picking winners
         try:
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
                 message = await channel.fetch_message(giveaway["message_id"])
                 embed = message.embeds[0]
-                embed.color = discord.Color.red()
-                embed.title = f"🎉 GIVEAWAY ENDED: {giveaway['prize']}"
+                embed.color = discord.Color.orange()
+                embed.title = "🎉 GIVEAWAY - Picking Winners..."
                 await message.edit(embed=embed, view=None)
         except Exception as e:
             log.error(f"Error updating giveaway message: {e}")
         
         # Pick winners
         if not giveaway["entries"]:
-            # No entries
+            # No entries - mark as fully ended
+            async with self.config.guild(guild).giveaways() as giveaways:
+                giveaways[giveaway_id]["ended"] = True
             try:
                 if channel:
-                    await channel.send(f"Giveaway for **{giveaway['prize']}** ended with no entries! 😢")
+                    await channel.send(f"Giveaway for **{giveaway['description']}** ended with no entries! 😢")
             except Exception:
                 pass
             return
@@ -456,7 +459,7 @@ class ShadyGiveaway(commands.Cog):
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
                 remaining = giveaway["winners_count"] - claimed_count
-                await channel.send(f"No more eligible entries for **{giveaway['prize']}** giveaway. Still need {remaining} more winner(s) but no one left to pick from.")
+                await channel.send(f"No more eligible entries for **{giveaway['description']}** giveaway. Still need {remaining} more winner(s) but no one left to pick from.")
             return
         
         # Pick random winner
@@ -482,7 +485,7 @@ class ShadyGiveaway(commands.Cog):
         # Create claim embed
         claim_embed = discord.Embed(
             title="🎉 You Won a Giveaway!",
-            description=f"Congratulations! You won **{giveaway['prize']}**!",
+            description=f"Congratulations! You won **{giveaway['description']}**!",
             color=discord.Color.gold()
         )
         
@@ -521,7 +524,7 @@ class ShadyGiveaway(commands.Cog):
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
                 await channel.send(
-                    f"{winner.mention} You won **{giveaway['prize']}** but I can't DM you! Please enable DMs and we'll reroll.",
+                    f"{winner.mention} You won **{giveaway['description']}** but I can't DM you! Please enable DMs and we'll reroll.",
                     embed=claim_embed,
                     view=view
                 )
@@ -551,7 +554,7 @@ class ShadyGiveaway(commands.Cog):
             # Send prize code
             code_embed = discord.Embed(
                 title="🎁 Your Prize Code",
-                description=f"**Prize:** {giveaway['prize']}\n\n**Code/Key:**\n```\n{giveaway['prize_code']}\n```",
+                description=f"**Prize:** {giveaway['description']}\n\n**Code/Key:**\n```\n{giveaway['prize_code']}\n```",
                 color=discord.Color.green()
             )
             code_embed.set_footer(text="Congratulations! Enjoy your prize!")
@@ -569,15 +572,46 @@ class ShadyGiveaway(commands.Cog):
                 claimed_count = len(giveaway_updated.get("winners_claimed", []))
                 if giveaway["winners_count"] > 1:
                     await channel.send(
-                        f"🎉 Congratulations {interaction.user.mention} for claiming prize #{claimed_count} of {giveaway['winners_count']} for **{giveaway['prize']}**!"
+                        f"🎉 Congratulations {interaction.user.mention} for claiming prize #{claimed_count} of {giveaway['winners_count']} for **{giveaway['description']}**!"
                     )
                 else:
-                    await channel.send(f"🎉 Congratulations {interaction.user.mention} for winning **{giveaway['prize']}**!")
+                    await channel.send(f"🎉 Congratulations {interaction.user.mention} for winning **{giveaway['description']}**!")
             
             # Check if we need more winners
             if claimed_count < giveaway["winners_count"]:
                 # Pick next winner
                 await self.pick_and_notify_winner(interaction.guild, giveaway_id, giveaway_updated)
+            else:
+                # All winners claimed! Mark as ended and announce
+                async with self.config.guild(interaction.guild).giveaways() as all_giveaways:
+                    all_giveaways[giveaway_id]["ended"] = True
+                
+                # Update message to completed
+                try:
+                    message = await channel.fetch_message(giveaway["message_id"])
+                    embed = message.embeds[0]
+                    embed.color = discord.Color.green()
+                    embed.title = "🎉 GIVEAWAY COMPLETE!"
+                    await message.edit(embed=embed)
+                except Exception as e:
+                    log.error(f"Error updating completed giveaway message: {e}")
+                
+                # Announce all winners
+                winners_list = [f"<@{wid}>" for wid in giveaway_updated["winners_claimed"]]
+                
+                final_embed = discord.Embed(
+                    title="🏆 Giveaway Winners!",
+                    description=f"**{giveaway['description']}**",
+                    color=discord.Color.gold()
+                )
+                final_embed.add_field(
+                    name=f"{'Winner' if len(winners_list) == 1 else 'Winners'}",
+                    value=", ".join(winners_list),
+                    inline=False
+                )
+                final_embed.set_footer(text="Congratulations to all winners!")
+                
+                await channel.send(embed=final_embed)
                 
         else:
             # Declined - reroll
@@ -589,7 +623,7 @@ class ShadyGiveaway(commands.Cog):
             # Announce reroll
             channel = interaction.guild.get_channel(giveaway["channel_id"])
             if channel:
-                await channel.send(f"{interaction.user.mention} declined **{giveaway['prize']}**. Picking a new winner...")
+                await channel.send(f"{interaction.user.mention} declined **{giveaway['description']}**. Picking a new winner...")
             
             # Pick new winner
             await self.pick_and_notify_winner(interaction.guild, giveaway_id, giveaway)
@@ -609,7 +643,7 @@ class ShadyGiveaway(commands.Cog):
                 
                 if channel:
                     await channel.send(
-                        f"⏰ {winner_mention} didn't claim **{giveaway['prize']}** in time. Picking a new winner..."
+                        f"⏰ {winner_mention} didn't claim **{giveaway['description']}** in time. Picking a new winner..."
                     )
                 
                 # Pick new winner
@@ -638,12 +672,80 @@ class ShadyGiveaway(commands.Cog):
             end_time = giveaway["end_timestamp"]
             entries_count = len(giveaway["entries"])
             
+            # Determine status
+            if giveaway.get("picking_winners", False):
+                status = "🎲 Picking Winners"
+            else:
+                status = "🟢 Active"
+            
             embed.add_field(
-                name=f"{giveaway['prize']}",
-                value=f"Channel: {channel_mention}\n"
+                name=f"{giveaway['description']}",
+                value=f"Status: {status}\n"
+                      f"Channel: {channel_mention}\n"
                       f"Entries: {entries_count}\n"
+                      f"Claimed: {len(giveaway.get('winners_claimed', []))}/{giveaway['winners_count']}\n"
                       f"Ends: <t:{end_time}:R>\n"
                       f"ID: `{giveaway_id}`",
+                inline=False
+            )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="giveaway_info", description="View detailed info about a specific giveaway")
+    @app_commands.describe(giveaway_id="The giveaway ID")
+    async def giveaway_info(
+        self,
+        interaction: discord.Interaction,
+        giveaway_id: str
+    ):
+        """Get detailed information about a giveaway."""
+        if not await self.is_authorized(interaction):
+            await interaction.response.send_message(
+                "You don't have permission to view giveaway info.",
+                ephemeral=True
+            )
+            return
+        
+        giveaways = await self.config.guild(interaction.guild).giveaways()
+        
+        if giveaway_id not in giveaways:
+            await interaction.response.send_message("Giveaway not found.", ephemeral=True)
+            return
+        
+        giveaway = giveaways[giveaway_id]
+        channel = interaction.guild.get_channel(giveaway["channel_id"])
+        host = interaction.guild.get_member(giveaway["host_id"])
+        
+        embed = discord.Embed(
+            title="🎉 Giveaway Information",
+            description=giveaway["description"],
+            color=discord.Color.gold() if not giveaway["ended"] else discord.Color.red()
+        )
+        
+        embed.add_field(name="Channel", value=channel.mention if channel else "Unknown", inline=True)
+        embed.add_field(name="Host", value=host.mention if host else "Unknown", inline=True)
+        
+        # Determine status
+        if giveaway["ended"]:
+            status = "✅ Complete"
+        elif giveaway.get("picking_winners", False):
+            status = "🎲 Picking Winners"
+        else:
+            status = "🟢 Active"
+        
+        embed.add_field(name="Status", value=status, inline=True)
+        embed.add_field(name="Winners Needed", value=str(giveaway["winners_count"]), inline=True)
+        embed.add_field(name="Total Entries", value=str(len(giveaway["entries"])), inline=True)
+        embed.add_field(name="Winners Claimed", value=str(len(giveaway.get("winners_claimed", []))), inline=True)
+        embed.add_field(name="Ends", value=f"<t:{giveaway['end_timestamp']}:R>", inline=False)
+        embed.add_field(name="Giveaway ID", value=f"`{giveaway_id}`", inline=False)
+        
+        # Show participants if less than 20
+        if len(giveaway["entries"]) <= 20:
+            participants = [f"<@{uid}>" for uid in giveaway["entries"]]
+            embed.add_field(
+                name=f"Participants ({len(participants)})",
+                value=", ".join(participants) if participants else "None",
                 inline=False
             )
         

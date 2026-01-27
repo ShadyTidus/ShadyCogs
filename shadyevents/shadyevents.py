@@ -138,7 +138,6 @@ class JoinTeamSelectView(discord.ui.View):
                 )
         
         if not options:
-            # No teams need players - this shouldn't happen but handle gracefully
             options.append(
                 discord.SelectOption(
                     label="No teams available",
@@ -149,7 +148,7 @@ class JoinTeamSelectView(discord.ui.View):
         
         self.select = discord.ui.Select(
             placeholder="Select a team to join...",
-            options=options[:25]  # Discord limit
+            options=options[:25]
         )
         self.select.callback = self.select_callback
         self.add_item(self.select)
@@ -254,7 +253,90 @@ class TournamentSelectView(discord.ui.View):
             await self.cog.show_bracket_from_select(interaction, tournament_id)
         elif self.action == "info":
             await self.cog.show_tournament_info(interaction, tournament_id)
+        elif self.action == "report":
+            await self.cog.show_match_selection(interaction, tournament_id)
         
+        self.stop()
+
+
+class MatchSelectView(discord.ui.View):
+    """View with dropdown to select a match to report."""
+
+    def __init__(self, cog: "ShadyEvents", tournament_id: str, tournament: Dict[str, Any], pending_matches: List[Dict]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.tournament_id = tournament_id
+        self.tournament = tournament
+        
+        options = []
+        for match in pending_matches[:25]:
+            p1 = match["participant1"]
+            p2 = match["participant2"]
+            
+            if tournament["type"] == "team":
+                label = f"Match #{match['match_number']}: {p1} vs {p2}"
+            else:
+                # For solo, we'll just show match number in label
+                label = f"Match #{match['match_number']}"
+                # Get member names for description
+                guild = None  # Will be set from interaction
+            
+            options.append(
+                discord.SelectOption(
+                    label=label[:100],  # Discord limit
+                    value=str(match["match_number"]),
+                    description=f"Round {match['round']}"
+                )
+            )
+        
+        self.select = discord.ui.Select(
+            placeholder="Select a match to report...",
+            options=options
+        )
+        self.select.callback = self.select_callback
+        self.add_item(self.select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        match_number = int(self.select.values[0])
+        await self.cog.show_winner_selection(interaction, self.tournament_id, self.tournament, match_number)
+        self.stop()
+
+
+class WinnerSelectView(discord.ui.View):
+    """View with dropdown to select the winner of a match."""
+
+    def __init__(self, cog: "ShadyEvents", tournament_id: str, tournament: Dict[str, Any], match: Dict[str, Any]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.tournament_id = tournament_id
+        self.tournament = tournament
+        self.match = match
+        
+        p1 = match["participant1"]
+        p2 = match["participant2"]
+        
+        options = []
+        
+        if tournament["type"] == "team":
+            options.append(discord.SelectOption(label=p1, value=p1, emoji="🏆"))
+            if p2 != "BYE":
+                options.append(discord.SelectOption(label=p2, value=p2, emoji="🏆"))
+        else:
+            # Solo - use user IDs as values
+            options.append(discord.SelectOption(label=f"Player 1", value=str(p1), description=f"ID: {p1}", emoji="🏆"))
+            if p2 != "BYE":
+                options.append(discord.SelectOption(label=f"Player 2", value=str(p2), description=f"ID: {p2}", emoji="🏆"))
+        
+        self.select = discord.ui.Select(
+            placeholder="Select the winner...",
+            options=options
+        )
+        self.select.callback = self.select_callback
+        self.add_item(self.select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        winner_value = self.select.values[0]
+        await self.cog.process_match_report(interaction, self.tournament_id, self.match["match_number"], winner_value)
         self.stop()
 
 
@@ -389,20 +471,9 @@ class ShadyEvents(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="tournamentreport", description="Report a match result")
-    @app_commands.describe(
-        tournament_id="Tournament ID",
-        match_number="Match number",
-        winner="Winner team name or @mention"
-    )
-    async def tournamentreport(
-        self,
-        interaction: discord.Interaction,
-        tournament_id: str,
-        match_number: int,
-        winner: str
-    ):
-        """Report a match result."""
+    @app_commands.command(name="tournamentreport", description="Report a match result (multi-step)")
+    async def tournamentreport(self, interaction: discord.Interaction):
+        """Report a match result with multi-step dropdown flow."""
         if not await self.is_authorized(interaction):
             await interaction.response.send_message(
                 "You don't have permission to manage tournaments.",
@@ -412,12 +483,301 @@ class ShadyEvents(commands.Cog):
         
         tournaments = await self.config.guild(interaction.guild).tournaments()
         
+        # Filter to only started, non-cancelled tournaments with pending matches
+        active_tournaments = []
+        for tid, t in tournaments.items():
+            if t.get("started") and not t.get("cancelled"):
+                bracket = t.get("bracket", [])
+                pending = [m for m in bracket if not m["completed"]]
+                if pending:
+                    active_tournaments.append((tid, t))
+        
+        if not active_tournaments:
+            await interaction.response.send_message(
+                "No active tournaments with pending matches.",
+                ephemeral=True
+            )
+            return
+        
+        view = TournamentSelectView(self, active_tournaments, "report")
+        await interaction.response.send_message(
+            "**Step 1/3:** Select a tournament to report a match for:",
+            view=view,
+            ephemeral=True
+        )
+
+    async def show_match_selection(self, interaction: discord.Interaction, tournament_id: str):
+        """Show dropdown to select which match to report - Step 2."""
+        tournaments = await self.config.guild(interaction.guild).tournaments()
+        
         if tournament_id not in tournaments:
             await interaction.response.send_message("Tournament not found.", ephemeral=True)
             return
         
         tournament = tournaments[tournament_id]
-        await self.report_match(interaction, tournament_id, tournament, match_number, winner)
+        bracket = tournament.get("bracket", [])
+        pending_matches = [m for m in bracket if not m["completed"]]
+        
+        if not pending_matches:
+            await interaction.response.send_message("No pending matches in this tournament.", ephemeral=True)
+            return
+        
+        # Build bracket display
+        rounds = {}
+        for match in bracket:
+            round_num = match["round"]
+            if round_num not in rounds:
+                rounds[round_num] = []
+            rounds[round_num].append(match)
+        
+        bracket_text = ""
+        max_round = max(rounds.keys()) if rounds else 0
+        
+        for round_num in sorted(rounds.keys()):
+            matches = rounds[round_num]
+            
+            if round_num == max_round and len(matches) == 1:
+                round_name = "🏆 Finals"
+            elif round_num == max_round - 1 and max_round > 1:
+                round_name = "Semifinals"
+            else:
+                round_name = f"Round {round_num}"
+            
+            bracket_text += f"\n**{round_name}:**\n"
+            
+            for match in matches:
+                p1 = match["participant1"]
+                p2 = match["participant2"]
+                
+                if tournament["type"] == "team":
+                    p1_display = p1
+                    p2_display = p2
+                else:
+                    p1_display = f"<@{p1}>"
+                    p2_display = f"<@{p2}>" if p2 != "BYE" else "BYE"
+                
+                status = "✅" if match["completed"] else "⏳"
+                winner_display = ""
+                if match["winner"]:
+                    if tournament["type"] == "team":
+                        winner_display = f" → **{match['winner']}**"
+                    else:
+                        winner_display = f" → <@{match['winner']}>"
+                
+                bracket_text += f"{status} Match #{match['match_number']}: {p1_display} vs {p2_display}{winner_display}\n"
+        
+        view = MatchSelectView(self, tournament_id, tournament, pending_matches)
+        
+        await interaction.response.send_message(
+            f"**Step 2/3:** Select a match to report\n\n"
+            f"**{tournament['name']}** - Current Bracket:{bracket_text}",
+            view=view,
+            ephemeral=True
+        )
+
+    async def show_winner_selection(self, interaction: discord.Interaction, tournament_id: str, tournament: Dict[str, Any], match_number: int):
+        """Show dropdown to select winner - Step 3."""
+        # Re-fetch tournament to get latest data
+        tournaments = await self.config.guild(interaction.guild).tournaments()
+        tournament = tournaments.get(tournament_id)
+        
+        if not tournament:
+            await interaction.response.send_message("Tournament not found.", ephemeral=True)
+            return
+        
+        bracket = tournament.get("bracket", [])
+        match = None
+        for m in bracket:
+            if m["match_number"] == match_number:
+                match = m
+                break
+        
+        if not match:
+            await interaction.response.send_message(f"Match #{match_number} not found!", ephemeral=True)
+            return
+        
+        if match["completed"]:
+            await interaction.response.send_message(f"Match #{match_number} already completed!", ephemeral=True)
+            return
+        
+        p1 = match["participant1"]
+        p2 = match["participant2"]
+        
+        if tournament["type"] == "team":
+            p1_display = p1
+            p2_display = p2
+        else:
+            p1_display = f"<@{p1}>"
+            p2_display = f"<@{p2}>" if p2 != "BYE" else "BYE"
+        
+        view = WinnerSelectView(self, tournament_id, tournament, match)
+        
+        await interaction.response.send_message(
+            f"**Step 3/3:** Select the winner\n\n"
+            f"**Match #{match_number}:** {p1_display} vs {p2_display}",
+            view=view,
+            ephemeral=True
+        )
+
+    async def process_match_report(self, interaction: discord.Interaction, tournament_id: str, match_number: int, winner_value: str):
+        """Process the match report and update bracket."""
+        tournaments = await self.config.guild(interaction.guild).tournaments()
+        
+        if tournament_id not in tournaments:
+            await interaction.response.send_message("Tournament not found.", ephemeral=True)
+            return
+        
+        tournament = tournaments[tournament_id]
+        bracket = tournament.get("bracket", [])
+        
+        match = None
+        for m in bracket:
+            if m["match_number"] == match_number:
+                match = m
+                break
+        
+        if not match:
+            await interaction.response.send_message(f"Match #{match_number} not found!", ephemeral=True)
+            return
+        
+        if match["completed"]:
+            await interaction.response.send_message(f"Match #{match_number} already completed!", ephemeral=True)
+            return
+        
+        # Determine winner
+        if tournament["type"] == "team":
+            winner = winner_value
+        else:
+            winner = int(winner_value)
+        
+        # Update match
+        match["completed"] = True
+        match["winner"] = winner
+        
+        # Check if round is complete and generate next round
+        current_round = match["round"]
+        round_matches = [m for m in bracket if m["round"] == current_round]
+        round_complete = all(m["completed"] for m in round_matches)
+        
+        champion = None
+        
+        if round_complete:
+            round_winners = [m["winner"] for m in round_matches]
+            
+            if len(round_winners) > 1:
+                next_round = current_round + 1
+                match_counter = max([m["match_number"] for m in bracket]) + 1
+                
+                for i in range(0, len(round_winners) - 1, 2):
+                    bracket.append({
+                        "match_number": match_counter,
+                        "round": next_round,
+                        "participant1": round_winners[i],
+                        "participant2": round_winners[i + 1],
+                        "winner": None,
+                        "completed": False
+                    })
+                    match_counter += 1
+                
+                if len(round_winners) % 2 != 0:
+                    bracket.append({
+                        "match_number": match_counter,
+                        "round": next_round,
+                        "participant1": round_winners[-1],
+                        "participant2": "BYE",
+                        "winner": round_winners[-1],
+                        "completed": True
+                    })
+            else:
+                champion = round_winners[0]
+        
+        # Save updated bracket
+        async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
+            all_tournaments[tournament_id]["bracket"] = bracket
+        
+        # Post public update in channel
+        channel = interaction.guild.get_channel(tournament["channel_id"])
+        
+        p1 = match["participant1"]
+        p2 = match["participant2"]
+        
+        if tournament["type"] == "team":
+            p1_display = p1
+            p2_display = p2
+            winner_display = winner
+        else:
+            p1_display = f"<@{p1}>"
+            p2_display = f"<@{p2}>" if p2 != "BYE" else "BYE"
+            winner_display = f"<@{winner}>"
+        
+        # Build updated bracket embed for public post
+        bracket_embed = discord.Embed(
+            title=f"📊 {tournament['name']} - Match Result",
+            description=f"**Match #{match_number}:** {p1_display} vs {p2_display}\n**Winner:** {winner_display}",
+            color=discord.Color.green()
+        )
+        
+        # Add current bracket state
+        rounds = {}
+        for m in bracket:
+            round_num = m["round"]
+            if round_num not in rounds:
+                rounds[round_num] = []
+            rounds[round_num].append(m)
+        
+        max_round = max(rounds.keys()) if rounds else 0
+        
+        for round_num in sorted(rounds.keys()):
+            matches = rounds[round_num]
+            match_text = ""
+            
+            for m in matches:
+                mp1 = m["participant1"]
+                mp2 = m["participant2"]
+                
+                if tournament["type"] == "team":
+                    mp1_display = mp1
+                    mp2_display = mp2
+                else:
+                    mp1_display = f"<@{mp1}>"
+                    mp2_display = f"<@{mp2}>" if mp2 != "BYE" else "BYE"
+                
+                status = "✅" if m["completed"] else "⏳"
+                mwinner_display = ""
+                if m["winner"]:
+                    if tournament["type"] == "team":
+                        mwinner_display = f" → **{m['winner']}**"
+                    else:
+                        mwinner_display = f" → <@{m['winner']}>"
+                
+                match_text += f"{status} Match #{m['match_number']}: {mp1_display} vs {mp2_display}{mwinner_display}\n"
+            
+            if round_num == max_round and len(matches) == 1:
+                round_name = "🏆 Finals"
+            elif round_num == max_round - 1 and max_round > 1:
+                round_name = "Semifinals"
+            else:
+                round_name = f"Round {round_num}"
+            
+            bracket_embed.add_field(name=round_name, value=match_text or "No matches", inline=False)
+        
+        if channel:
+            await channel.send(embed=bracket_embed)
+            
+            if champion:
+                champion_display = champion if tournament["type"] == "team" else f"<@{champion}>"
+                await channel.send(
+                    f"🎉🏆 **TOURNAMENT CHAMPION** 🏆🎉\n\n"
+                    f"**{tournament['name']}**\n"
+                    f"**Champion:** {champion_display}"
+                )
+        
+        # Confirm to user
+        msg = f"✅ Match #{match_number} recorded! Winner: {winner_display}"
+        if champion:
+            msg += "\n\n🏆 **Tournament Complete!**"
+        
+        await interaction.response.send_message(msg, ephemeral=True)
 
     async def create_tournament(
         self,
@@ -472,7 +832,7 @@ class ShadyEvents(commands.Cog):
                 "type": tournament_type,
                 "team_size": team_size,
                 "participants": [],
-                "teams": {},  # team_name -> {"captain": user_id, "players": [user_ids]}
+                "teams": {},
                 "pickup_players": [],
                 "started": False,
                 "cancelled": False,
@@ -503,7 +863,6 @@ class ShadyEvents(commands.Cog):
             await interaction.response.send_message("This tournament has been cancelled.", ephemeral=True)
             return
         
-        # Check if team name exists
         if team_name in tournament["teams"]:
             await interaction.response.send_message(
                 f"Team name **{team_name}** is already taken!",
@@ -511,7 +870,6 @@ class ShadyEvents(commands.Cog):
             )
             return
         
-        # Check if user is already on a team
         for existing_team, team_data in tournament["teams"].items():
             if interaction.user.id in team_data["players"]:
                 await interaction.response.send_message(
@@ -520,11 +878,9 @@ class ShadyEvents(commands.Cog):
                 )
                 return
         
-        # Remove from pickup pool if they were there
         if interaction.user.id in tournament["pickup_players"]:
             tournament["pickup_players"].remove(interaction.user.id)
         
-        # Create the team with captain
         tournament["teams"][team_name] = {
             "captain": interaction.user.id,
             "players": [interaction.user.id]
@@ -561,7 +917,6 @@ class ShadyEvents(commands.Cog):
             await interaction.response.send_message("This tournament has been cancelled.", ephemeral=True)
             return
         
-        # Check if user is already on a team
         for team_name, team_data in tournament["teams"].items():
             if interaction.user.id in team_data["players"]:
                 await interaction.response.send_message(
@@ -570,7 +925,6 @@ class ShadyEvents(commands.Cog):
                 )
                 return
         
-        # Check if user is in pickup pool
         if interaction.user.id in tournament["pickup_players"]:
             await interaction.response.send_message(
                 "You're already in the pickup pool! Leave first to join a specific team.",
@@ -578,7 +932,6 @@ class ShadyEvents(commands.Cog):
             )
             return
         
-        # Get teams that need players
         team_size = tournament["team_size"]
         available_teams = {
             name: data["players"] 
@@ -631,7 +984,6 @@ class ShadyEvents(commands.Cog):
             )
             return
         
-        # Double-check user isn't already on a team
         for existing_team, existing_data in tournament["teams"].items():
             if interaction.user.id in existing_data["players"]:
                 await interaction.response.send_message(
@@ -640,7 +992,6 @@ class ShadyEvents(commands.Cog):
                 )
                 return
         
-        # Add to team
         team_data["players"].append(interaction.user.id)
         
         async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
@@ -710,7 +1061,6 @@ class ShadyEvents(commands.Cog):
             await interaction.response.send_message("This tournament has been cancelled.", ephemeral=True)
             return
         
-        # Check if already in a team
         for team_name, team_data in tournament["teams"].items():
             if interaction.user.id in team_data["players"]:
                 await interaction.response.send_message(
@@ -753,29 +1103,24 @@ class ShadyEvents(commands.Cog):
         left = False
         left_from = ""
         
-        # Check solo participants
         if interaction.user.id in tournament["participants"]:
             tournament["participants"].remove(interaction.user.id)
             left = True
             left_from = "the tournament"
         
-        # Check pickup players
         if interaction.user.id in tournament["pickup_players"]:
             tournament["pickup_players"].remove(interaction.user.id)
             left = True
             left_from = "the pickup pool"
         
-        # Check teams
         for team_name, team_data in list(tournament["teams"].items()):
             if interaction.user.id in team_data["players"]:
                 team_data["players"].remove(interaction.user.id)
                 
                 if not team_data["players"]:
-                    # Team is empty, delete it
                     del tournament["teams"][team_name]
                     left_from = f"team **{team_name}** (team disbanded)"
                 elif team_data["captain"] == interaction.user.id:
-                    # Captain left, assign new captain
                     team_data["captain"] = team_data["players"][0]
                     new_captain = interaction.guild.get_member(team_data["captain"])
                     new_captain_name = new_captain.display_name if new_captain else "Unknown"
@@ -818,7 +1163,6 @@ class ShadyEvents(commands.Cog):
             else:
                 team_size = tournament["team_size"]
                 
-                # Build teams display
                 if tournament["teams"]:
                     teams_text = ""
                     for team_name, team_data in tournament["teams"].items():
@@ -838,7 +1182,6 @@ class ShadyEvents(commands.Cog):
                 else:
                     teams_text = "None yet"
                 
-                # Update fields
                 for i, field in enumerate(embed.fields):
                     if field.name == "Teams":
                         embed.set_field_at(i, name="Teams", value=teams_text, inline=False)
@@ -865,7 +1208,7 @@ class ShadyEvents(commands.Cog):
         
         embed = discord.Embed(
             title="🏆 Tournaments",
-            description="Use `/tournamentmanage` to start, view, or cancel.",
+            description="Use `/tournamentmanage` to start, view, or cancel.\nUse `/tournamentreport` to report match results.",
             color=discord.Color.blue()
         )
         
@@ -926,14 +1269,13 @@ class ShadyEvents(commands.Cog):
             bracket = self.generate_bracket(participants, is_team=False)
             final_teams = {}
             
-        else:  # Team tournament
+        else:
             teams = {name: data["players"].copy() for name, data in tournament["teams"].items()}
             pickup_players = list(tournament["pickup_players"])
             team_size = tournament["team_size"]
             
             random.shuffle(pickup_players)
             
-            # Fill incomplete teams
             for team_name, players in list(teams.items()):
                 needed = team_size - len(players)
                 if needed > 0 and pickup_players:
@@ -941,7 +1283,6 @@ class ShadyEvents(commands.Cog):
                     teams[team_name].extend(added)
                     pickup_players = pickup_players[needed:]
             
-            # Create new teams from remaining pickups
             new_team_counter = 1
             while len(pickup_players) >= team_size:
                 team_name = f"Pickup Team {new_team_counter}"
@@ -949,7 +1290,6 @@ class ShadyEvents(commands.Cog):
                 pickup_players = pickup_players[team_size:]
                 new_team_counter += 1
             
-            # Keep only complete teams
             complete_teams = {name: players for name, players in teams.items() if len(players) == team_size}
             
             if len(complete_teams) < 2:
@@ -963,16 +1303,13 @@ class ShadyEvents(commands.Cog):
             bracket = self.generate_bracket(list(final_teams.keys()), is_team=True)
             participants = []
         
-        # Update stored data - convert team structure for started tournament
         async with self.config.guild(guild).tournaments() as all_tournaments:
             if tournament["type"] == "team":
-                # Convert to simple format for bracket play
                 all_tournaments[tournament_id]["final_teams"] = final_teams
             all_tournaments[tournament_id]["bracket"] = bracket
             all_tournaments[tournament_id]["started"] = True
             all_tournaments[tournament_id]["participants"] = participants
         
-        # Update embed
         try:
             channel = guild.get_channel(tournament["channel_id"])
             if channel:
@@ -992,7 +1329,6 @@ class ShadyEvents(commands.Cog):
         if tournament_id in self.active_views:
             del self.active_views[tournament_id]
         
-        # Announce start
         channel = guild.get_channel(tournament["channel_id"])
         
         announce_embed = discord.Embed(
@@ -1023,15 +1359,37 @@ class ShadyEvents(commands.Cog):
                     inline=False
                 )
         
-        announce_embed.add_field(
-            name="📊 View Bracket",
-            value=f"Use `/tournamentmanage` → View Bracket",
-            inline=False
-        )
+        # Add bracket
+        rounds = {}
+        for match in bracket:
+            round_num = match["round"]
+            if round_num not in rounds:
+                rounds[round_num] = []
+            rounds[round_num].append(match)
+        
+        for round_num in sorted(rounds.keys()):
+            matches = rounds[round_num]
+            match_text = ""
+            
+            for match in matches:
+                p1 = match["participant1"]
+                p2 = match["participant2"]
+                
+                if tournament["type"] == "team":
+                    p1_display = p1
+                    p2_display = p2
+                else:
+                    p1_display = f"<@{p1}>"
+                    p2_display = f"<@{p2}>" if p2 != "BYE" else "BYE"
+                
+                status = "✅" if match["completed"] else "⏳"
+                match_text += f"{status} Match #{match['match_number']}: {p1_display} vs {p2_display}\n"
+            
+            announce_embed.add_field(name=f"Round {round_num}", value=match_text or "No matches", inline=False)
         
         announce_embed.add_field(
             name="📝 Report Matches",
-            value=f"`/tournamentreport tournament_id:{tournament_id} match_number:X winner:TeamName`",
+            value="Use `/tournamentreport` to report match results",
             inline=False
         )
         
@@ -1256,136 +1614,6 @@ class ShadyEvents(commands.Cog):
             })
         
         return matches
-
-    async def report_match(
-        self,
-        interaction: discord.Interaction,
-        tournament_id: str,
-        tournament: Dict[str, Any],
-        match_number: int,
-        winner_input: str
-    ):
-        """Report match result and advance winner."""
-        if not tournament["started"]:
-            await interaction.response.send_message("Tournament hasn't started!", ephemeral=True)
-            return
-        
-        bracket = tournament.get("bracket", [])
-        
-        match = None
-        for m in bracket:
-            if m["match_number"] == match_number:
-                match = m
-                break
-        
-        if not match:
-            await interaction.response.send_message(f"Match #{match_number} not found!", ephemeral=True)
-            return
-        
-        if match["completed"]:
-            await interaction.response.send_message(f"Match #{match_number} already completed!", ephemeral=True)
-            return
-        
-        winner = None
-        if tournament["type"] == "team":
-            if winner_input == match["participant1"] or winner_input == match["participant2"]:
-                winner = winner_input
-        else:
-            winner_id = None
-            if winner_input.startswith("<@") and winner_input.endswith(">"):
-                winner_id = int(winner_input.replace("<@", "").replace("!", "").replace(">", ""))
-            else:
-                try:
-                    winner_id = int(winner_input)
-                except ValueError:
-                    pass
-            
-            if winner_id in [match["participant1"], match["participant2"]]:
-                winner = winner_id
-        
-        if not winner:
-            p1 = match["participant1"]
-            p2 = match["participant2"]
-            if tournament["type"] == "team":
-                await interaction.response.send_message(
-                    f"Invalid winner! Must be either `{p1}` or `{p2}`.",
-                    ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(
-                    f"Invalid winner! Must be <@{p1}> or <@{p2}>.",
-                    ephemeral=True
-                )
-            return
-        
-        match["completed"] = True
-        match["winner"] = winner
-        
-        current_round = match["round"]
-        round_matches = [m for m in bracket if m["round"] == current_round]
-        round_complete = all(m["completed"] for m in round_matches)
-        
-        champion = None
-        
-        if round_complete:
-            round_winners = [m["winner"] for m in round_matches]
-            
-            if len(round_winners) > 1:
-                next_round = current_round + 1
-                match_counter = max([m["match_number"] for m in bracket]) + 1
-                
-                for i in range(0, len(round_winners) - 1, 2):
-                    bracket.append({
-                        "match_number": match_counter,
-                        "round": next_round,
-                        "participant1": round_winners[i],
-                        "participant2": round_winners[i + 1],
-                        "winner": None,
-                        "completed": False
-                    })
-                    match_counter += 1
-                
-                if len(round_winners) % 2 != 0:
-                    bracket.append({
-                        "match_number": match_counter,
-                        "round": next_round,
-                        "participant1": round_winners[-1],
-                        "participant2": "BYE",
-                        "winner": round_winners[-1],
-                        "completed": True
-                    })
-            else:
-                champion = round_winners[0]
-        
-        async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
-            all_tournaments[tournament_id]["bracket"] = bracket
-        
-        channel = interaction.guild.get_channel(tournament["channel_id"])
-        if channel:
-            p1_display = match["participant1"] if tournament["type"] == "team" else f"<@{match['participant1']}>"
-            p2_display = match["participant2"] if tournament["type"] == "team" else f"<@{match['participant2']}>"
-            winner_display = winner if tournament["type"] == "team" else f"<@{winner}>"
-            
-            await channel.send(
-                f"📊 **Match #{match_number} Result**\n"
-                f"{p1_display} vs {p2_display}\n"
-                f"**Winner:** {winner_display}"
-            )
-            
-            if champion:
-                champion_display = champion if tournament["type"] == "team" else f"<@{champion}>"
-                await channel.send(
-                    f"🎉🏆 **TOURNAMENT CHAMPION** 🏆🎉\n\n"
-                    f"**{tournament['name']}**\n"
-                    f"**Champion:** {champion_display}"
-                )
-        
-        winner_display = winner if tournament["type"] == "team" else f"<@{winner}>"
-        msg = f"✅ Match #{match_number} recorded! Winner: {winner_display}"
-        if champion:
-            msg += "\n\n🏆 **Tournament Complete!**"
-        
-        await interaction.response.send_message(msg, ephemeral=True)
 
 
 async def setup(bot: Red):

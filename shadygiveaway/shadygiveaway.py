@@ -143,10 +143,6 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
             str(self.prize_code),
             claim_timeout_delta,
         )
-            winners,
-            str(self.prize_code),
-            claim_timeout_delta,
-        )
 
 
 class GiveawayEnterView(discord.ui.View):

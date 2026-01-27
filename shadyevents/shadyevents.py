@@ -242,21 +242,23 @@ class ShadyEvents(commands.Cog):
         if not isinstance(interaction.user, discord.Member):
             return True
         
-        # Check if user is admin
-        if interaction.user.guild_permissions.administrator:
+        # Check if user is admin or guild owner
+        if interaction.user.guild_permissions.administrator or interaction.user == interaction.guild.owner:
             return True
         
         # Check roles from wiki/config/roles.json
-        roles_file = Path("E:/wiki/config/roles.json")
-        if roles_file.exists():
-            try:
+        try:
+            cogs_dir = Path(__file__).parent.parent
+            roles_file = cogs_dir / "wiki" / "config" / "roles.json"
+            
+            if roles_file.exists():
                 with open(roles_file, "r", encoding="utf-8") as f:
-                    allowed_role_ids = json.load(f)
-                user_role_ids = [role.id for role in interaction.user.roles]
-                if any(role_id in allowed_role_ids for role_id in user_role_ids):
-                    return True
-            except Exception as e:
-                log.error(f"Error reading roles.json: {e}")
+                    roles_data = json.load(f)
+                    allowed_roles = roles_data.get("authorized_roles", [])
+                    # Check if user has any of the allowed roles by name
+                    return any(role.name in allowed_roles for role in interaction.user.roles)
+        except Exception as e:
+            log.error(f"Error reading roles.json: {e}")
         
         return False
 

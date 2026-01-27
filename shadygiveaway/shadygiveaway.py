@@ -74,75 +74,83 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Parse channel
-        channel_str = str(self.channel).strip()
-        channel = None
-        
-        # Try to parse channel mention or ID
-        if channel_str.startswith("<#") and channel_str.endswith(">"):
-            # Channel mention format
-            channel_id = int(channel_str.replace("<#", "").replace(">", ""))
-            channel = interaction.guild.get_channel(channel_id)
-        else:
-            # Try as channel ID
-            try:
-                channel_id = int(channel_str)
-                channel = interaction.guild.get_channel(channel_id)
-            except ValueError:
-                # Try finding by name
-                for ch in interaction.guild.text_channels:
-                    if ch.name.lower() == channel_str.lower() or f"#{ch.name}".lower() == channel_str.lower():
-                        channel = ch
-                        break
-        
-        if channel is None:
-            await interaction.response.send_message(
-                "Invalid channel. Please use a channel mention (#channel), channel ID, or channel name.",
-                ephemeral=True
-            )
-            return
-        
-        # Parse duration
-        duration_delta = await self.cog.parse_duration(str(self.duration))
-        if duration_delta is None:
-            await interaction.response.send_message(
-                "Invalid duration format. Use formats like `30m`, `2h`, `1d`, `3d`, `1w`.",
-                ephemeral=True,
-            )
-            return
-
-        # Parse claim timeout
-        claim_timeout_delta = await self.cog.parse_duration(str(self.claim_timeout))
-        if claim_timeout_delta is None:
-            await interaction.response.send_message(
-                "Invalid claim timeout format. Use formats like `30m`, `1h`, `2h`.",
-                ephemeral=True,
-            )
-            return
-
-        # Parse winners count
         try:
-            winners = int(str(self.winners_count))
-            if winners < 1 or winners > 20:
-                raise ValueError
-        except ValueError:
-            await interaction.response.send_message(
-                "Winners count must be a number between 1 and 20.",
-                ephemeral=True,
-            )
-            return
+            # Parse channel
+            channel_str = str(self.channel).strip()
+            channel = None
+            
+            # Try to parse channel mention or ID
+            if channel_str.startswith("<#") and channel_str.endswith(">"):
+                # Channel mention format
+                channel_id = int(channel_str.replace("<#", "").replace(">", ""))
+                channel = interaction.guild.get_channel(channel_id)
+            else:
+                # Try as channel ID
+                try:
+                    channel_id = int(channel_str)
+                    channel = interaction.guild.get_channel(channel_id)
+                except ValueError:
+                    # Try finding by name
+                    for ch in interaction.guild.text_channels:
+                        if ch.name.lower() == channel_str.lower() or f"#{ch.name}".lower() == channel_str.lower():
+                            channel = ch
+                            break
+            
+            if channel is None:
+                await interaction.response.send_message(
+                    "Invalid channel. Please use a channel mention (#channel), channel ID, or channel name.",
+                    ephemeral=True
+                )
+                return
+            
+            # Parse duration
+            duration_delta = await self.cog.parse_duration(str(self.duration))
+            if duration_delta is None:
+                await interaction.response.send_message(
+                    "Invalid duration format. Use formats like `30m`, `2h`, `1d`, `3d`, `1w`.",
+                    ephemeral=True,
+                )
+                return
 
-        # Create giveaway
-        await self.cog.create_giveaway(
-            interaction,
-            channel,
-            str(self.prize),
-            str(self.description) or None,
-            duration_delta,
-            winners,
-            str(self.prize_code),
-            claim_timeout_delta,
-        )
+            # Parse claim timeout
+            claim_timeout_delta = await self.cog.parse_duration(str(self.claim_timeout))
+            if claim_timeout_delta is None:
+                await interaction.response.send_message(
+                    "Invalid claim timeout format. Use formats like `30m`, `1h`, `2h`.",
+                    ephemeral=True,
+                )
+                return
+
+            # Parse winners count
+            try:
+                winners = int(str(self.winners_count))
+                if winners < 1 or winners > 20:
+                    raise ValueError
+            except ValueError:
+                await interaction.response.send_message(
+                    "Winners count must be a number between 1 and 20.",
+                    ephemeral=True,
+                )
+                return
+
+            # Create giveaway
+            await self.cog.create_giveaway(
+                interaction,
+                channel,
+                str(self.prize),
+                str(self.description) or None,
+                duration_delta,
+                winners,
+                str(self.prize_code),
+                claim_timeout_delta,
+            )
+        except Exception as e:
+            error_msg = f"**Error in modal submission:**\n```\n{type(e).__name__}: {str(e)}\n```"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(error_msg, ephemeral=True)
+            log.error(f"Error in modal submission: {e}", exc_info=True)
 
 
 class GiveawayEnterView(discord.ui.View):
@@ -280,32 +288,40 @@ class ShadyGiveaway(commands.Cog):
         action: str
     ):
         """Main giveaway command handler."""
-        if not await self.is_authorized(interaction):
-            await interaction.response.send_message(
-                "You don't have permission to manage giveaways.",
-                ephemeral=True
-            )
-            return
-        
-        if action == "create":
-            # Show modal for giveaway creation
-            modal = GiveawayCreateModal(self)
-            await interaction.response.send_modal(modal)
+        try:
+            if not await self.is_authorized(interaction):
+                await interaction.response.send_message(
+                    "You don't have permission to manage giveaways.",
+                    ephemeral=True
+                )
+                return
             
-        elif action == "list":
-            await self.list_giveaways(interaction)
-            
-        elif action == "end":
-            await interaction.response.send_message(
-                "Use `/giveaway_manage` to end or cancel specific giveaways.",
-                ephemeral=True
-            )
-            
-        elif action == "cancel":
-            await interaction.response.send_message(
-                "Use `/giveaway_manage` to end or cancel specific giveaways.",
-                ephemeral=True
-            )
+            if action == "create":
+                # Show modal for giveaway creation
+                modal = GiveawayCreateModal(self)
+                await interaction.response.send_modal(modal)
+                
+            elif action == "list":
+                await self.list_giveaways(interaction)
+                
+            elif action == "end":
+                await interaction.response.send_message(
+                    "Use `/giveaway_manage` to end or cancel specific giveaways.",
+                    ephemeral=True
+                )
+                
+            elif action == "cancel":
+                await interaction.response.send_message(
+                    "Use `/giveaway_manage` to end or cancel specific giveaways.",
+                    ephemeral=True
+                )
+        except Exception as e:
+            error_msg = f"**Error in giveaway command:**\n```\n{type(e).__name__}: {str(e)}\n```"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(error_msg, ephemeral=True)
+            log.error(f"Error in giveaway command: {e}", exc_info=True)
 
     async def create_giveaway(
         self,
@@ -319,50 +335,58 @@ class ShadyGiveaway(commands.Cog):
         claim_timeout: timedelta,
     ):
         """Create a new giveaway."""
-        # Generate unique ID
-        giveaway_id = f"{interaction.guild.id}_{int(datetime.now(timezone.utc).timestamp())}"
-        
-        # Calculate end time
-        end_time = datetime.now(timezone.utc) + duration
-        
-        # Create embed
-        embed = discord.Embed(
-            title=f"🎉 GIVEAWAY: {prize}",
-            description=description or "React to enter!",
-            color=discord.Color.gold(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.add_field(name="Winners", value=str(winners_count), inline=True)
-        embed.add_field(name="Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=True)
-        embed.add_field(name="Hosted by", value=interaction.user.mention, inline=True)
-        embed.set_footer(text=f"Giveaway ID: {giveaway_id}")
-        
-        # Post giveaway
-        view = GiveawayEnterView(self, giveaway_id)
-        message = await channel.send(embed=embed, view=view)
-        
-        # Store giveaway data
-        async with self.config.guild(interaction.guild).giveaways() as giveaways:
-            giveaways[giveaway_id] = {
-                "message_id": message.id,
-                "channel_id": channel.id,
-                "prize": prize,
-                "description": description,
-                "host_id": interaction.user.id,
-                "winners_count": winners_count,
-                "prize_code": prize_code,
-                "claim_timeout_seconds": int(claim_timeout.total_seconds()),
-                "end_timestamp": int(end_time.timestamp()),
-                "entries": [],
-                "ended": False,
-                "winners_picked": [],
-                "winners_claimed": [],
-            }
-        
-        await interaction.response.send_message(
-            f"Giveaway created in {channel.mention}! Ends <t:{int(end_time.timestamp())}:R>",
-            ephemeral=True
-        )
+        try:
+            # Generate unique ID
+            giveaway_id = f"{interaction.guild.id}_{int(datetime.now(timezone.utc).timestamp())}"
+            
+            # Calculate end time
+            end_time = datetime.now(timezone.utc) + duration
+            
+            # Create embed
+            embed = discord.Embed(
+                title=f"🎉 GIVEAWAY: {prize}",
+                description=description or "React to enter!",
+                color=discord.Color.gold(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.add_field(name="Winners", value=str(winners_count), inline=True)
+            embed.add_field(name="Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=True)
+            embed.add_field(name="Hosted by", value=interaction.user.mention, inline=True)
+            embed.set_footer(text=f"Giveaway ID: {giveaway_id}")
+            
+            # Post giveaway
+            view = GiveawayEnterView(self, giveaway_id)
+            message = await channel.send(embed=embed, view=view)
+            
+            # Store giveaway data
+            async with self.config.guild(interaction.guild).giveaways() as giveaways:
+                giveaways[giveaway_id] = {
+                    "message_id": message.id,
+                    "channel_id": channel.id,
+                    "prize": prize,
+                    "description": description,
+                    "host_id": interaction.user.id,
+                    "winners_count": winners_count,
+                    "prize_code": prize_code,
+                    "claim_timeout_seconds": int(claim_timeout.total_seconds()),
+                    "end_timestamp": int(end_time.timestamp()),
+                    "entries": [],
+                    "ended": False,
+                    "winners_picked": [],
+                    "winners_claimed": [],
+                }
+            
+            await interaction.response.send_message(
+                f"✅ Giveaway created in {channel.mention}!\nID: `{giveaway_id}`",
+                ephemeral=True
+            )
+        except Exception as e:
+            error_msg = f"**Error creating giveaway:**\n```\n{type(e).__name__}: {str(e)}\n```"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(error_msg, ephemeral=True)
+            log.error(f"Error creating giveaway: {e}", exc_info=True)
 
     async def handle_entry(self, interaction: discord.Interaction, giveaway_id: str):
         """Handle user entering a giveaway."""

@@ -24,13 +24,6 @@ log = logging.getLogger("red.shadycogs.shadyevents")
 class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
     """Modal for creating a new tournament."""
 
-    channel = discord.ui.TextInput(
-        label="Channel",
-        placeholder="#tournaments or channel ID",
-        required=True,
-        max_length=100,
-    )
-
     tournament_name = discord.ui.TextInput(
         label="Tournament Name",
         placeholder="e.g., Marvel Rivals Championship",
@@ -61,26 +54,11 @@ class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Parse channel
-        channel_str = str(self.channel).strip()
-        channel = None
-        
-        if channel_str.startswith("<#") and channel_str.endswith(">"):
-            channel_id = int(channel_str.replace("<#", "").replace(">", ""))
-            channel = interaction.guild.get_channel(channel_id)
-        else:
-            try:
-                channel_id = int(channel_str)
-                channel = interaction.guild.get_channel(channel_id)
-            except ValueError:
-                for ch in interaction.guild.text_channels:
-                    if ch.name.lower() == channel_str.lower() or f"#{ch.name}".lower() == channel_str.lower():
-                        channel = ch
-                        break
-        
-        if channel is None:
+        # Use current channel
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
-                "Invalid channel. Please use a channel mention (#channel), channel ID, or channel name.",
+                "This command must be run in a text channel!",
                 ephemeral=True
             )
             return

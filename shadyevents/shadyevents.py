@@ -54,7 +54,6 @@ class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Use current channel
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
@@ -95,8 +94,8 @@ class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
         )
 
 
-class TeamRegisterModal(discord.ui.Modal, title="Register Team"):
-    """Modal for captains to register a team."""
+class TeamCreateModal(discord.ui.Modal, title="Create Team"):
+    """Modal for captains to create a team - just the name, captain is auto-added."""
 
     team_name = discord.ui.TextInput(
         label="Team Name",
@@ -104,29 +103,67 @@ class TeamRegisterModal(discord.ui.Modal, title="Register Team"):
         required=True,
         max_length=50,
     )
-    players = discord.ui.TextInput(
-        label="Players (mention or IDs)",
-        style=discord.TextStyle.paragraph,
-        placeholder="@player1 @player2 @player3 (include yourself)",
-        required=True,
-        max_length=500,
-    )
 
-    def __init__(self, cog: "ShadyEvents", tournament_id: str, team_size: int):
+    def __init__(self, cog: "ShadyEvents", tournament_id: str):
         super().__init__()
         self.cog = cog
         self.tournament_id = tournament_id
-        self.team_size = team_size
-        self.players.label = f"Players - Need {team_size} (mention or IDs)"
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.cog.register_team(
+        await self.cog.create_team(
             interaction,
             self.tournament_id,
-            str(self.team_name),
-            str(self.players),
-            self.team_size,
+            str(self.team_name).strip(),
         )
+
+
+class JoinTeamSelectView(discord.ui.View):
+    """View with dropdown to select a team to join."""
+
+    def __init__(self, cog: "ShadyEvents", tournament_id: str, teams: Dict[str, List[int]], team_size: int):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.tournament_id = tournament_id
+        
+        options = []
+        for team_name, players in teams.items():
+            if len(players) < team_size:
+                spots_left = team_size - len(players)
+                options.append(
+                    discord.SelectOption(
+                        label=team_name,
+                        value=team_name,
+                        description=f"{len(players)}/{team_size} players ({spots_left} spot{'s' if spots_left > 1 else ''} left)"
+                    )
+                )
+        
+        if not options:
+            # No teams need players - this shouldn't happen but handle gracefully
+            options.append(
+                discord.SelectOption(
+                    label="No teams available",
+                    value="_none_",
+                    description="All teams are full"
+                )
+            )
+        
+        self.select = discord.ui.Select(
+            placeholder="Select a team to join...",
+            options=options[:25]  # Discord limit
+        )
+        self.select.callback = self.select_callback
+        self.add_item(self.select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        team_name = self.select.values[0]
+        
+        if team_name == "_none_":
+            await interaction.response.send_message("No teams available to join.", ephemeral=True)
+            self.stop()
+            return
+        
+        await self.cog.join_team(interaction, self.tournament_id, team_name)
+        self.stop()
 
 
 class SoloSignupView(discord.ui.View):
@@ -147,7 +184,7 @@ class SoloSignupView(discord.ui.View):
 
 
 class TeamSignupView(discord.ui.View):
-    """View for team tournament signups (premade teams with pickup option)."""
+    """View for team tournament signups."""
 
     def __init__(self, cog: "ShadyEvents", tournament_id: str, team_size: int):
         super().__init__(timeout=None)
@@ -155,12 +192,16 @@ class TeamSignupView(discord.ui.View):
         self.tournament_id = tournament_id
         self.team_size = team_size
 
-    @discord.ui.button(label="⭐ Register Team", style=discord.ButtonStyle.blurple, custom_id="tournament_register_team")
-    async def register_team_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = TeamRegisterModal(self.cog, self.tournament_id, self.team_size)
+    @discord.ui.button(label="⭐ Create Team (Captain)", style=discord.ButtonStyle.blurple, custom_id="tournament_create_team")
+    async def create_team_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = TeamCreateModal(self.cog, self.tournament_id)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="🎲 Join as Pickup", style=discord.ButtonStyle.green, custom_id="tournament_join_pickup")
+    @discord.ui.button(label="👥 Join a Team", style=discord.ButtonStyle.green, custom_id="tournament_join_team")
+    async def join_team_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.show_team_selection(interaction, self.tournament_id)
+
+    @discord.ui.button(label="🎲 Join as Pickup", style=discord.ButtonStyle.gray, custom_id="tournament_join_pickup")
     async def join_pickup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.handle_pickup_join(interaction, self.tournament_id)
 
@@ -229,7 +270,6 @@ class ShadyEvents(commands.Cog):
         }
         self.config.register_guild(**default_guild)
         
-        # Store active views for persistence
         self.active_views: Dict[str, discord.ui.View] = {}
 
     async def cog_load(self):
@@ -317,17 +357,13 @@ class ShadyEvents(commands.Cog):
         
         tournaments = await self.config.guild(interaction.guild).tournaments()
         
-        # Filter based on action
         if action == "start":
-            # Only show tournaments that haven't started
             filtered = [(tid, t) for tid, t in tournaments.items() 
                        if not t.get("started") and not t.get("cancelled")]
         elif action == "cancel":
-            # Show tournaments that aren't cancelled
             filtered = [(tid, t) for tid, t in tournaments.items() 
                        if not t.get("cancelled")]
         else:
-            # Show all non-cancelled tournaments
             filtered = [(tid, t) for tid, t in tournaments.items() 
                        if not t.get("cancelled")]
         
@@ -409,12 +445,13 @@ class ShadyEvents(commands.Cog):
         else:
             embed.add_field(name="Type", value=f"Team ({team_size}v{team_size})", inline=True)
             embed.add_field(
-                name="Signup Options",
-                value="**⭐ Register Team:** Captain registers full team\n"
-                      "**🎲 Join as Pickup:** Get randomly assigned to a team",
+                name="How to Join",
+                value="**⭐ Create Team:** Become captain, others join your team\n"
+                      "**👥 Join a Team:** Pick an existing team from dropdown\n"
+                      "**🎲 Join as Pickup:** Get randomly assigned when tournament starts",
                 inline=False
             )
-            embed.add_field(name="Registered Teams", value="0", inline=True)
+            embed.add_field(name="Teams", value="None yet", inline=False)
             embed.add_field(name="Pickup Players", value="0", inline=True)
             view = TeamSignupView(self, tournament_id, team_size)
         
@@ -423,7 +460,6 @@ class ShadyEvents(commands.Cog):
         
         message = await channel.send(embed=embed, view=view)
         
-        # Store view for persistence
         self.active_views[tournament_id] = view
         
         async with self.config.guild(interaction.guild).tournaments() as tournaments:
@@ -436,7 +472,7 @@ class ShadyEvents(commands.Cog):
                 "type": tournament_type,
                 "team_size": team_size,
                 "participants": [],
-                "teams": {},
+                "teams": {},  # team_name -> {"captain": user_id, "players": [user_ids]}
                 "pickup_players": [],
                 "started": False,
                 "cancelled": False,
@@ -448,6 +484,180 @@ class ShadyEvents(commands.Cog):
             f"ID: `{tournament_id}`",
             ephemeral=True
         )
+
+    async def create_team(self, interaction: discord.Interaction, tournament_id: str, team_name: str):
+        """Create a new team with the user as captain."""
+        tournaments = await self.config.guild(interaction.guild).tournaments()
+        
+        if tournament_id not in tournaments:
+            await interaction.response.send_message("Tournament not found.", ephemeral=True)
+            return
+        
+        tournament = tournaments[tournament_id]
+        
+        if tournament["started"]:
+            await interaction.response.send_message("This tournament has already started.", ephemeral=True)
+            return
+        
+        if tournament.get("cancelled"):
+            await interaction.response.send_message("This tournament has been cancelled.", ephemeral=True)
+            return
+        
+        # Check if team name exists
+        if team_name in tournament["teams"]:
+            await interaction.response.send_message(
+                f"Team name **{team_name}** is already taken!",
+                ephemeral=True
+            )
+            return
+        
+        # Check if user is already on a team
+        for existing_team, team_data in tournament["teams"].items():
+            if interaction.user.id in team_data["players"]:
+                await interaction.response.send_message(
+                    f"You're already on team **{existing_team}**! Leave that team first.",
+                    ephemeral=True
+                )
+                return
+        
+        # Remove from pickup pool if they were there
+        if interaction.user.id in tournament["pickup_players"]:
+            tournament["pickup_players"].remove(interaction.user.id)
+        
+        # Create the team with captain
+        tournament["teams"][team_name] = {
+            "captain": interaction.user.id,
+            "players": [interaction.user.id]
+        }
+        
+        async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
+            all_tournaments[tournament_id] = tournament
+        
+        await self.update_tournament_embed(interaction.guild, tournament_id, tournament)
+        
+        team_size = tournament["team_size"]
+        await interaction.response.send_message(
+            f"✅ Team **{team_name}** created!\n\n"
+            f"You are the captain. Your team needs **{team_size - 1}** more player(s).\n"
+            f"Other players can click **👥 Join a Team** and select your team from the dropdown.",
+            ephemeral=True
+        )
+
+    async def show_team_selection(self, interaction: discord.Interaction, tournament_id: str):
+        """Show dropdown to select a team to join."""
+        tournaments = await self.config.guild(interaction.guild).tournaments()
+        
+        if tournament_id not in tournaments:
+            await interaction.response.send_message("Tournament not found.", ephemeral=True)
+            return
+        
+        tournament = tournaments[tournament_id]
+        
+        if tournament["started"]:
+            await interaction.response.send_message("This tournament has already started.", ephemeral=True)
+            return
+        
+        if tournament.get("cancelled"):
+            await interaction.response.send_message("This tournament has been cancelled.", ephemeral=True)
+            return
+        
+        # Check if user is already on a team
+        for team_name, team_data in tournament["teams"].items():
+            if interaction.user.id in team_data["players"]:
+                await interaction.response.send_message(
+                    f"You're already on team **{team_name}**!",
+                    ephemeral=True
+                )
+                return
+        
+        # Check if user is in pickup pool
+        if interaction.user.id in tournament["pickup_players"]:
+            await interaction.response.send_message(
+                "You're already in the pickup pool! Leave first to join a specific team.",
+                ephemeral=True
+            )
+            return
+        
+        # Get teams that need players
+        team_size = tournament["team_size"]
+        available_teams = {
+            name: data["players"] 
+            for name, data in tournament["teams"].items() 
+            if len(data["players"]) < team_size
+        }
+        
+        if not available_teams:
+            await interaction.response.send_message(
+                "No teams are looking for players right now.\n\n"
+                "You can:\n"
+                "• **Create your own team** with the ⭐ button\n"
+                "• **Join as Pickup** with the 🎲 button",
+                ephemeral=True
+            )
+            return
+        
+        view = JoinTeamSelectView(self, tournament_id, available_teams, team_size)
+        await interaction.response.send_message(
+            "Select a team to join:",
+            view=view,
+            ephemeral=True
+        )
+
+    async def join_team(self, interaction: discord.Interaction, tournament_id: str, team_name: str):
+        """Join a specific team."""
+        tournaments = await self.config.guild(interaction.guild).tournaments()
+        
+        if tournament_id not in tournaments:
+            await interaction.response.send_message("Tournament not found.", ephemeral=True)
+            return
+        
+        tournament = tournaments[tournament_id]
+        
+        if tournament["started"]:
+            await interaction.response.send_message("This tournament has already started.", ephemeral=True)
+            return
+        
+        if team_name not in tournament["teams"]:
+            await interaction.response.send_message("That team no longer exists.", ephemeral=True)
+            return
+        
+        team_data = tournament["teams"][team_name]
+        team_size = tournament["team_size"]
+        
+        if len(team_data["players"]) >= team_size:
+            await interaction.response.send_message(
+                f"Team **{team_name}** is now full!",
+                ephemeral=True
+            )
+            return
+        
+        # Double-check user isn't already on a team
+        for existing_team, existing_data in tournament["teams"].items():
+            if interaction.user.id in existing_data["players"]:
+                await interaction.response.send_message(
+                    f"You're already on team **{existing_team}**!",
+                    ephemeral=True
+                )
+                return
+        
+        # Add to team
+        team_data["players"].append(interaction.user.id)
+        
+        async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
+            all_tournaments[tournament_id] = tournament
+        
+        await self.update_tournament_embed(interaction.guild, tournament_id, tournament)
+        
+        current_count = len(team_data["players"])
+        spots_left = team_size - current_count
+        
+        msg = f"✅ You've joined team **{team_name}**! ({current_count}/{team_size})"
+        if spots_left > 0:
+            msg += f"\n\nTeam needs {spots_left} more player(s)."
+        else:
+            msg += "\n\n🎉 Team is now complete!"
+        
+        await interaction.response.send_message(msg, ephemeral=True)
 
     async def handle_solo_join(self, interaction: discord.Interaction, tournament_id: str):
         """Handle solo tournament join."""
@@ -501,10 +711,10 @@ class ShadyEvents(commands.Cog):
             return
         
         # Check if already in a team
-        for team_name, team_players in tournament["teams"].items():
-            if interaction.user.id in team_players:
+        for team_name, team_data in tournament["teams"].items():
+            if interaction.user.id in team_data["players"]:
                 await interaction.response.send_message(
-                    f"You're already on team **{team_name}**!",
+                    f"You're already on team **{team_name}**! Leave that team first.",
                     ephemeral=True
                 )
                 return
@@ -547,23 +757,32 @@ class ShadyEvents(commands.Cog):
         if interaction.user.id in tournament["participants"]:
             tournament["participants"].remove(interaction.user.id)
             left = True
-            left_from = "participants"
+            left_from = "the tournament"
         
         # Check pickup players
         if interaction.user.id in tournament["pickup_players"]:
             tournament["pickup_players"].remove(interaction.user.id)
             left = True
-            left_from = "pickup pool"
+            left_from = "the pickup pool"
         
         # Check teams
-        for team_name, team_players in list(tournament["teams"].items()):
-            if interaction.user.id in team_players:
-                team_players.remove(interaction.user.id)
-                if not team_players:
+        for team_name, team_data in list(tournament["teams"].items()):
+            if interaction.user.id in team_data["players"]:
+                team_data["players"].remove(interaction.user.id)
+                
+                if not team_data["players"]:
+                    # Team is empty, delete it
                     del tournament["teams"][team_name]
                     left_from = f"team **{team_name}** (team disbanded)"
+                elif team_data["captain"] == interaction.user.id:
+                    # Captain left, assign new captain
+                    team_data["captain"] = team_data["players"][0]
+                    new_captain = interaction.guild.get_member(team_data["captain"])
+                    new_captain_name = new_captain.display_name if new_captain else "Unknown"
+                    left_from = f"team **{team_name}** ({new_captain_name} is now captain)"
                 else:
                     left_from = f"team **{team_name}**"
+                
                 left = True
                 break
         
@@ -581,103 +800,8 @@ class ShadyEvents(commands.Cog):
             ephemeral=True
         )
 
-    async def register_team(
-        self,
-        interaction: discord.Interaction,
-        tournament_id: str,
-        team_name: str,
-        players_str: str,
-        team_size: int,
-    ):
-        """Register a team for a tournament."""
-        tournaments = await self.config.guild(interaction.guild).tournaments()
-        
-        if tournament_id not in tournaments:
-            await interaction.response.send_message("Tournament not found.", ephemeral=True)
-            return
-        
-        tournament = tournaments[tournament_id]
-        
-        if tournament["started"]:
-            await interaction.response.send_message("This tournament has already started.", ephemeral=True)
-            return
-        
-        if team_name in tournament["teams"]:
-            await interaction.response.send_message(f"Team name **{team_name}** is already taken!", ephemeral=True)
-            return
-        
-        # Parse player mentions/IDs
-        player_ids = []
-        tokens = players_str.replace("<@", " <@").replace(">", "> ").split()
-        
-        for token in tokens:
-            token = token.strip()
-            if not token:
-                continue
-            
-            user_id = None
-            if token.startswith("<@") and token.endswith(">"):
-                user_id_str = token.replace("<@", "").replace("!", "").replace(">", "")
-                try:
-                    user_id = int(user_id_str)
-                except ValueError:
-                    pass
-            else:
-                try:
-                    user_id = int(token)
-                except ValueError:
-                    pass
-            
-            if user_id and user_id not in player_ids:
-                player_ids.append(user_id)
-        
-        if len(player_ids) == 0:
-            await interaction.response.send_message(
-                "No valid players found. Please mention players or provide their user IDs.",
-                ephemeral=True
-            )
-            return
-        
-        if len(player_ids) > team_size:
-            await interaction.response.send_message(
-                f"Too many players! Team size is {team_size}, you provided {len(player_ids)}.",
-                ephemeral=True
-            )
-            return
-        
-        # Check for duplicate players across teams
-        for existing_team_name, existing_players in tournament["teams"].items():
-            for player_id in player_ids:
-                if player_id in existing_players:
-                    await interaction.response.send_message(
-                        f"<@{player_id}> is already on team **{existing_team_name}**!",
-                        ephemeral=True
-                    )
-                    return
-        
-        # Remove players from pickup pool if they were there
-        for player_id in player_ids:
-            if player_id in tournament["pickup_players"]:
-                tournament["pickup_players"].remove(player_id)
-        
-        tournament["teams"][team_name] = player_ids
-        async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
-            all_tournaments[tournament_id] = tournament
-        
-        await self.update_tournament_embed(interaction.guild, tournament_id, tournament)
-        
-        player_mentions = [f"<@{pid}>" for pid in player_ids]
-        
-        status_msg = f"✅ Team **{team_name}** registered!\n\n**Roster ({len(player_ids)}/{team_size}):**\n" + ", ".join(player_mentions)
-        
-        if len(player_ids) < team_size:
-            status_msg += f"\n\n⚠️ **Incomplete Team:** Needs {team_size - len(player_ids)} more player(s). "
-            status_msg += "Pickup players will fill your roster when the tournament starts."
-        
-        await interaction.response.send_message(status_msg, ephemeral=True)
-
     async def update_tournament_embed(self, guild: discord.Guild, tournament_id: str, tournament: Dict[str, Any]):
-        """Update the tournament embed with current signup counts."""
+        """Update the tournament embed with current signup info."""
         try:
             channel = guild.get_channel(tournament["channel_id"])
             if not channel:
@@ -692,9 +816,32 @@ class ShadyEvents(commands.Cog):
                         embed.set_field_at(i, name="Participants", value=str(len(tournament["participants"])), inline=True)
                         break
             else:
+                team_size = tournament["team_size"]
+                
+                # Build teams display
+                if tournament["teams"]:
+                    teams_text = ""
+                    for team_name, team_data in tournament["teams"].items():
+                        player_mentions = []
+                        for pid in team_data["players"]:
+                            if pid == team_data["captain"]:
+                                player_mentions.append(f"⭐<@{pid}>")
+                            else:
+                                player_mentions.append(f"<@{pid}>")
+                        
+                        count = len(team_data["players"])
+                        status = "✅" if count == team_size else f"({count}/{team_size})"
+                        teams_text += f"**{team_name}** {status}: {', '.join(player_mentions)}\n"
+                    
+                    if len(teams_text) > 1024:
+                        teams_text = f"{len(tournament['teams'])} teams registered"
+                else:
+                    teams_text = "None yet"
+                
+                # Update fields
                 for i, field in enumerate(embed.fields):
-                    if field.name == "Registered Teams":
-                        embed.set_field_at(i, name="Registered Teams", value=str(len(tournament["teams"])), inline=True)
+                    if field.name == "Teams":
+                        embed.set_field_at(i, name="Teams", value=teams_text, inline=False)
                     elif field.name == "Pickup Players":
                         embed.set_field_at(i, name="Pickup Players", value=str(len(tournament["pickup_players"])), inline=True)
             
@@ -777,14 +924,13 @@ class ShadyEvents(commands.Cog):
                 return
             
             bracket = self.generate_bracket(participants, is_team=False)
-            teams = {}
+            final_teams = {}
             
         else:  # Team tournament
-            teams = dict(tournament["teams"])
+            teams = {name: data["players"].copy() for name, data in tournament["teams"].items()}
             pickup_players = list(tournament["pickup_players"])
             team_size = tournament["team_size"]
             
-            # Shuffle pickup players
             random.shuffle(pickup_players)
             
             # Fill incomplete teams
@@ -803,7 +949,7 @@ class ShadyEvents(commands.Cog):
                 pickup_players = pickup_players[team_size:]
                 new_team_counter += 1
             
-            # Remove incomplete teams
+            # Keep only complete teams
             complete_teams = {name: players for name, players in teams.items() if len(players) == team_size}
             
             if len(complete_teams) < 2:
@@ -813,18 +959,20 @@ class ShadyEvents(commands.Cog):
                 )
                 return
             
-            teams = complete_teams
-            bracket = self.generate_bracket(list(teams.keys()), is_team=True)
+            final_teams = complete_teams
+            bracket = self.generate_bracket(list(final_teams.keys()), is_team=True)
             participants = []
         
-        # Update stored data
+        # Update stored data - convert team structure for started tournament
         async with self.config.guild(guild).tournaments() as all_tournaments:
-            all_tournaments[tournament_id]["teams"] = teams
+            if tournament["type"] == "team":
+                # Convert to simple format for bracket play
+                all_tournaments[tournament_id]["final_teams"] = final_teams
             all_tournaments[tournament_id]["bracket"] = bracket
             all_tournaments[tournament_id]["started"] = True
             all_tournaments[tournament_id]["participants"] = participants
         
-        # Update embed to show started
+        # Update embed
         try:
             channel = guild.get_channel(tournament["channel_id"])
             if channel:
@@ -832,7 +980,6 @@ class ShadyEvents(commands.Cog):
                 embed = message.embeds[0]
                 embed.color = discord.Color.green()
                 
-                # Update status field
                 for i, field in enumerate(embed.fields):
                     if field.name == "Status":
                         embed.set_field_at(i, name="Status", value="🏁 Tournament Started!", inline=False)
@@ -842,7 +989,6 @@ class ShadyEvents(commands.Cog):
         except Exception as e:
             log.error(f"Error updating started tournament embed: {e}")
         
-        # Remove from active views
         if tournament_id in self.active_views:
             del self.active_views[tournament_id]
         
@@ -857,7 +1003,7 @@ class ShadyEvents(commands.Cog):
         
         if tournament["type"] == "team":
             teams_text = ""
-            for team_name, players in teams.items():
+            for team_name, players in final_teams.items():
                 player_mentions = [f"<@{pid}>" for pid in players]
                 teams_text += f"**{team_name}:** {', '.join(player_mentions)}\n"
             
@@ -910,7 +1056,6 @@ class ShadyEvents(commands.Cog):
         async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
             all_tournaments[tournament_id]["cancelled"] = True
         
-        # Update embed
         try:
             channel = interaction.guild.get_channel(tournament["channel_id"])
             if channel:
@@ -929,7 +1074,6 @@ class ShadyEvents(commands.Cog):
         except Exception as e:
             log.error(f"Error updating cancelled tournament embed: {e}")
         
-        # Remove from active views
         if tournament_id in self.active_views:
             del self.active_views[tournament_id]
         
@@ -1031,7 +1175,6 @@ class ShadyEvents(commands.Cog):
         channel = interaction.guild.get_channel(tournament["channel_id"])
         host = interaction.guild.get_member(tournament["host_id"])
         
-        # Determine status
         if tournament.get("cancelled"):
             status = "🚫 Cancelled"
             color = discord.Color.red()
@@ -1058,11 +1201,10 @@ class ShadyEvents(commands.Cog):
             embed.add_field(name="Teams", value=str(len(tournament["teams"])), inline=True)
             embed.add_field(name="Pickup Players", value=str(len(tournament["pickup_players"])), inline=True)
             
-            # Show teams
             if tournament["teams"]:
                 teams_text = ""
-                for team_name, players in list(tournament["teams"].items())[:10]:
-                    player_mentions = [f"<@{pid}>" for pid in players]
+                for team_name, team_data in list(tournament["teams"].items())[:10]:
+                    player_mentions = [f"<@{pid}>" for pid in team_data["players"]]
                     teams_text += f"**{team_name}:** {', '.join(player_mentions)}\n"
                 
                 if len(tournament["teams"]) > 10:
@@ -1103,7 +1245,6 @@ class ShadyEvents(commands.Cog):
             })
             match_num += 1
         
-        # Handle odd number with bye
         if len(entities) % 2 != 0:
             matches.append({
                 "match_number": match_num,
@@ -1145,7 +1286,6 @@ class ShadyEvents(commands.Cog):
             await interaction.response.send_message(f"Match #{match_number} already completed!", ephemeral=True)
             return
         
-        # Parse winner
         winner = None
         if tournament["type"] == "team":
             if winner_input == match["participant1"] or winner_input == match["participant2"]:
@@ -1178,11 +1318,9 @@ class ShadyEvents(commands.Cog):
                 )
             return
         
-        # Update match
         match["completed"] = True
         match["winner"] = winner
         
-        # Check if round is complete
         current_round = match["round"]
         round_matches = [m for m in bracket if m["round"] == current_round]
         round_complete = all(m["completed"] for m in round_matches)
@@ -1193,7 +1331,6 @@ class ShadyEvents(commands.Cog):
             round_winners = [m["winner"] for m in round_matches]
             
             if len(round_winners) > 1:
-                # Create next round
                 next_round = current_round + 1
                 match_counter = max([m["match_number"] for m in bracket]) + 1
                 
@@ -1208,7 +1345,6 @@ class ShadyEvents(commands.Cog):
                     })
                     match_counter += 1
                 
-                # Handle odd winner with bye
                 if len(round_winners) % 2 != 0:
                     bracket.append({
                         "match_number": match_counter,
@@ -1219,14 +1355,11 @@ class ShadyEvents(commands.Cog):
                         "completed": True
                     })
             else:
-                # Tournament complete!
                 champion = round_winners[0]
         
-        # Save bracket
         async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
             all_tournaments[tournament_id]["bracket"] = bracket
         
-        # Announce result
         channel = interaction.guild.get_channel(tournament["channel_id"])
         if channel:
             p1_display = match["participant1"] if tournament["type"] == "team" else f"<@{match['participant1']}>"

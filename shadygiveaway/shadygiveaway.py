@@ -23,45 +23,35 @@ log = logging.getLogger("red.shadycogs.shadygiveaway")
 class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
     """Modal for creating a new giveaway."""
 
-    channel = discord.ui.TextInput(
-        label="Channel",
-        placeholder="#giveaways or channel ID",
-        required=True,
-        max_length=100,
-    )
-
-    prize = discord.ui.TextInput(
-        label="Prize Name",
-        placeholder="e.g., Discord Nitro, $10 Steam Gift Card",
-        required=True,
-        max_length=100,
-    )
-
     description = discord.ui.TextInput(
-        label="Description (Optional)",
+        label="Prize & Description",
         style=discord.TextStyle.paragraph,
-        placeholder="Additional details about the prize...",
-        required=False,
+        placeholder="e.g., Win a Discord Nitro subscription! Monthly prize for active members.",
+        required=True,
         max_length=500,
     )
+    
     duration = discord.ui.TextInput(
         label="Duration",
         placeholder="e.g., 24h, 3d, 1w (s/m/h/d/w)",
         required=True,
         max_length=20,
     )
+    
     winners_count = discord.ui.TextInput(
         label="Number of Winners",
         placeholder="1",
         required=True,
         max_length=2,
     )
+    
     prize_code = discord.ui.TextInput(
         label="Prize Code/Key",
         placeholder="Code that winners will receive in DM",
         required=True,
         max_length=500,
     )
+    
     claim_timeout = discord.ui.TextInput(
         label="Claim Timeout",
         placeholder="e.g., 1h, 30m - Time to claim after winning",
@@ -75,30 +65,11 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            # Parse channel
-            channel_str = str(self.channel).strip()
-            channel = None
-            
-            # Try to parse channel mention or ID
-            if channel_str.startswith("<#") and channel_str.endswith(">"):
-                # Channel mention format
-                channel_id = int(channel_str.replace("<#", "").replace(">", ""))
-                channel = interaction.guild.get_channel(channel_id)
-            else:
-                # Try as channel ID
-                try:
-                    channel_id = int(channel_str)
-                    channel = interaction.guild.get_channel(channel_id)
-                except ValueError:
-                    # Try finding by name
-                    for ch in interaction.guild.text_channels:
-                        if ch.name.lower() == channel_str.lower() or f"#{ch.name}".lower() == channel_str.lower():
-                            channel = ch
-                            break
-            
-            if channel is None:
+            # Use the channel where command was run
+            channel = interaction.channel
+            if not isinstance(channel, discord.TextChannel):
                 await interaction.response.send_message(
-                    "Invalid channel. Please use a channel mention (#channel), channel ID, or channel name.",
+                    "This command must be run in a text channel!",
                     ephemeral=True
                 )
                 return
@@ -133,12 +104,11 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
                 )
                 return
 
-            # Create giveaway
+            # Create giveaway (description contains prize info now)
             await self.cog.create_giveaway(
                 interaction,
                 channel,
-                str(self.prize),
-                str(self.description) or None,
+                str(self.description),
                 duration_delta,
                 winners,
                 str(self.prize_code),
@@ -327,8 +297,7 @@ class ShadyGiveaway(commands.Cog):
         self,
         interaction: discord.Interaction,
         channel: discord.TextChannel,
-        prize: str,
-        description: Optional[str],
+        description: str,
         duration: timedelta,
         winners_count: int,
         prize_code: str,
@@ -344,8 +313,8 @@ class ShadyGiveaway(commands.Cog):
             
             # Create embed
             embed = discord.Embed(
-                title=f"🎉 GIVEAWAY: {prize}",
-                description=description or "React to enter!",
+                title="🎉 GIVEAWAY",
+                description=description,
                 color=discord.Color.gold(),
                 timestamp=datetime.now(timezone.utc)
             )
@@ -363,7 +332,6 @@ class ShadyGiveaway(commands.Cog):
                 giveaways[giveaway_id] = {
                     "message_id": message.id,
                     "channel_id": channel.id,
-                    "prize": prize,
                     "description": description,
                     "host_id": interaction.user.id,
                     "winners_count": winners_count,

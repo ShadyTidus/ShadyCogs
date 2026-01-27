@@ -23,6 +23,13 @@ log = logging.getLogger("red.shadycogs.shadygiveaway")
 class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
     """Modal for creating a new giveaway."""
 
+    channel = discord.ui.TextInput(
+        label="Channel",
+        placeholder="#giveaways or channel ID",
+        required=True,
+        max_length=100,
+    )
+
     prize = discord.ui.TextInput(
         label="Prize Name",
         placeholder="e.g., Discord Nitro, $10 Steam Gift Card",
@@ -62,12 +69,39 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
         max_length=20,
     )
 
-    def __init__(self, cog: "ShadyGiveaway", channel: discord.TextChannel):
+    def __init__(self, cog: "ShadyGiveaway"):
         super().__init__()
         self.cog = cog
-        self.channel = channel
 
     async def on_submit(self, interaction: discord.Interaction):
+        # Parse channel
+        channel_str = str(self.channel).strip()
+        channel = None
+        
+        # Try to parse channel mention or ID
+        if channel_str.startswith("<#") and channel_str.endswith(">"):
+            # Channel mention format
+            channel_id = int(channel_str.replace("<#", "").replace(">", ""))
+            channel = interaction.guild.get_channel(channel_id)
+        else:
+            # Try as channel ID
+            try:
+                channel_id = int(channel_str)
+                channel = interaction.guild.get_channel(channel_id)
+            except ValueError:
+                # Try finding by name
+                for ch in interaction.guild.text_channels:
+                    if ch.name.lower() == channel_str.lower() or f"#{ch.name}".lower() == channel_str.lower():
+                        channel = ch
+                        break
+        
+        if channel is None:
+            await interaction.response.send_message(
+                "Invalid channel. Please use a channel mention (#channel), channel ID, or channel name.",
+                ephemeral=True
+            )
+            return
+        
         # Parse duration
         duration_delta = await self.cog.parse_duration(str(self.duration))
         if duration_delta is None:
@@ -101,10 +135,14 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
         # Create giveaway
         await self.cog.create_giveaway(
             interaction,
-            self.channel,
+            channel,
             str(self.prize),
             str(self.description) or None,
             duration_delta,
+            winners,
+            str(self.prize_code),
+            claim_timeout_delta,
+        )
             winners,
             str(self.prize_code),
             claim_timeout_delta,
@@ -230,8 +268,7 @@ class ShadyGiveaway(commands.Cog):
 
     @app_commands.command(name="giveaway", description="Manage giveaways")
     @app_commands.describe(
-        action="Action to perform",
-        channel="Channel to post giveaway in (for create action)"
+        action="Action to perform"
     )
     @app_commands.choices(action=[
         app_commands.Choice(name="Create", value="create"),
@@ -242,8 +279,7 @@ class ShadyGiveaway(commands.Cog):
     async def giveaway(
         self,
         interaction: discord.Interaction,
-        action: str,
-        channel: Optional[discord.TextChannel] = None
+        action: str
     ):
         """Main giveaway command handler."""
         if not await self.is_authorized(interaction):
@@ -255,13 +291,7 @@ class ShadyGiveaway(commands.Cog):
         
         if action == "create":
             # Show modal for giveaway creation
-            if channel is None:
-                await interaction.response.send_message(
-                    "Please specify a channel to post the giveaway in.",
-                    ephemeral=True
-                )
-                return
-            modal = GiveawayCreateModal(self, channel)
+            modal = GiveawayCreateModal(self)
             await interaction.response.send_modal(modal)
             
         elif action == "list":
@@ -328,6 +358,7 @@ class ShadyGiveaway(commands.Cog):
                 "entries": [],
                 "ended": False,
                 "winners_picked": [],
+                "winners_claimed": [],
             }
         
         await interaction.response.send_message(
@@ -410,7 +441,7 @@ class ShadyGiveaway(commands.Cog):
                 pass
             return
         
-        # Pick initial winner
+        # Pick winners - start with first winner
         await self.pick_and_notify_winner(guild, giveaway_id, giveaway)
 
     async def pick_and_notify_winner(self, guild: discord.Guild, giveaway_id: str, giveaway: Dict[str, Any]):
@@ -421,6 +452,12 @@ class ShadyGiveaway(commands.Cog):
         if not giveaway:
             return
         
+        # Check if we already have enough winners
+        claimed_count = len([w for w in giveaway.get("winners_claimed", [])])
+        if claimed_count >= giveaway["winners_count"]:
+            # All winners have been claimed
+            return
+        
         # Filter out already picked winners
         available_entries = [e for e in giveaway["entries"] if e not in giveaway["winners_picked"]]
         
@@ -428,7 +465,8 @@ class ShadyGiveaway(commands.Cog):
             # All entries have been tried
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
-                await channel.send(f"No more eligible entries for **{giveaway['prize']}** giveaway.")
+                remaining = giveaway["winners_count"] - claimed_count
+                await channel.send(f"No more eligible entries for **{giveaway['prize']}** giveaway. Still need {remaining} more winner(s) but no one left to pick from.")
             return
         
         # Pick random winner
@@ -437,6 +475,9 @@ class ShadyGiveaway(commands.Cog):
         # Add to winners_picked
         async with self.config.guild(guild).giveaways() as all_giveaways:
             all_giveaways[giveaway_id]["winners_picked"].append(winner_id)
+            # Initialize winners_claimed if not exists
+            if "winners_claimed" not in all_giveaways[giveaway_id]:
+                all_giveaways[giveaway_id]["winners_claimed"] = []
         
         # Send claim message to winner
         winner = guild.get_member(winner_id)
@@ -445,12 +486,23 @@ class ShadyGiveaway(commands.Cog):
             await self.pick_and_notify_winner(guild, giveaway_id, giveaway)
             return
         
+        # Determine winner position
+        winner_number = len(giveaway["winners_picked"])
+        
         # Create claim embed
         claim_embed = discord.Embed(
             title="🎉 You Won a Giveaway!",
             description=f"Congratulations! You won **{giveaway['prize']}**!",
             color=discord.Color.gold()
         )
+        
+        if giveaway["winners_count"] > 1:
+            claim_embed.add_field(
+                name="🏆 Winner Position",
+                value=f"You are winner #{winner_number} of {giveaway['winners_count']}",
+                inline=False
+            )
+        
         claim_embed.add_field(
             name="⏰ Time to Claim",
             value=f"You have **{humanize_timedelta(seconds=giveaway['claim_timeout_seconds'])}** to claim your prize.",
@@ -500,6 +552,12 @@ class ShadyGiveaway(commands.Cog):
             return
         
         if claimed:
+            # Mark as claimed
+            async with self.config.guild(interaction.guild).giveaways() as all_giveaways:
+                if "winners_claimed" not in all_giveaways[giveaway_id]:
+                    all_giveaways[giveaway_id]["winners_claimed"] = []
+                all_giveaways[giveaway_id]["winners_claimed"].append(winner_id)
+            
             # Send prize code
             code_embed = discord.Embed(
                 title="🎁 Your Prize Code",
@@ -512,8 +570,24 @@ class ShadyGiveaway(commands.Cog):
             
             # Announce in channel
             channel = interaction.guild.get_channel(giveaway["channel_id"])
+            
+            # Get updated giveaway data
+            giveaways_updated = await self.config.guild(interaction.guild).giveaways()
+            giveaway_updated = giveaways_updated.get(giveaway_id)
+            
             if channel:
-                await channel.send(f"🎉 Congratulations {interaction.user.mention} for winning **{giveaway['prize']}**!")
+                claimed_count = len(giveaway_updated.get("winners_claimed", []))
+                if giveaway["winners_count"] > 1:
+                    await channel.send(
+                        f"🎉 Congratulations {interaction.user.mention} for claiming prize #{claimed_count} of {giveaway['winners_count']} for **{giveaway['prize']}**!"
+                    )
+                else:
+                    await channel.send(f"🎉 Congratulations {interaction.user.mention} for winning **{giveaway['prize']}**!")
+            
+            # Check if we need more winners
+            if claimed_count < giveaway["winners_count"]:
+                # Pick next winner
+                await self.pick_and_notify_winner(interaction.guild, giveaway_id, giveaway_updated)
                 
         else:
             # Declined - reroll

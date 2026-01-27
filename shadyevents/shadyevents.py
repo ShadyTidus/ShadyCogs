@@ -31,6 +31,13 @@ log = logging.getLogger("red.shadycogs.shadyevents")
 class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
     """Modal for creating a new tournament."""
 
+    channel = discord.ui.TextInput(
+        label="Channel",
+        placeholder="#tournaments or channel ID",
+        required=True,
+        max_length=100,
+    )
+
     tournament_name = discord.ui.TextInput(
         label="Tournament Name",
         placeholder="e.g., Marvel Rivals Championship",
@@ -62,12 +69,39 @@ class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
         max_length=10,
     )
 
-    def __init__(self, cog: "ShadyEvents", channel: discord.TextChannel):
+    def __init__(self, cog: "ShadyEvents"):
         super().__init__()
         self.cog = cog
-        self.channel = channel
 
     async def on_submit(self, interaction: discord.Interaction):
+        # Parse channel
+        channel_str = str(self.channel).strip()
+        channel = None
+        
+        # Try to parse channel mention or ID
+        if channel_str.startswith("<#") and channel_str.endswith(">"):
+            # Channel mention format
+            channel_id = int(channel_str.replace("<#", "").replace(">", ""))
+            channel = interaction.guild.get_channel(channel_id)
+        else:
+            # Try as channel ID
+            try:
+                channel_id = int(channel_str)
+                channel = interaction.guild.get_channel(channel_id)
+            except ValueError:
+                # Try finding by name
+                for ch in interaction.guild.text_channels:
+                    if ch.name.lower() == channel_str.lower() or f"#{ch.name}".lower() == channel_str.lower():
+                        channel = ch
+                        break
+        
+        if channel is None:
+            await interaction.response.send_message(
+                "Invalid channel. Please use a channel mention (#channel), channel ID, or channel name.",
+                ephemeral=True
+            )
+            return
+        
         # Validate type
         tourney_type = str(self.tournament_type).strip().lower()
         if tourney_type not in ["solo", "team"]:
@@ -106,7 +140,7 @@ class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
         # Create tournament
         await self.cog.create_tournament(
             interaction,
-            self.channel,
+            channel,
             str(self.tournament_name),
             str(self.game),
             tourney_type,
@@ -228,8 +262,7 @@ class ShadyEvents(commands.Cog):
 
     @app_commands.command(name="tournament", description="Create and manage tournaments")
     @app_commands.describe(
-        action="Action to perform",
-        channel="Channel to post tournament in (for create)"
+        action="Action to perform"
     )
     @app_commands.choices(action=[
         app_commands.Choice(name="Create", value="create"),
@@ -240,8 +273,7 @@ class ShadyEvents(commands.Cog):
     async def tournament(
         self,
         interaction: discord.Interaction,
-        action: str,
-        channel: Optional[discord.TextChannel] = None
+        action: str
     ):
         """Main tournament command handler."""
         if not await self.is_authorized(interaction):
@@ -252,13 +284,7 @@ class ShadyEvents(commands.Cog):
             return
         
         if action == "create":
-            if channel is None:
-                await interaction.response.send_message(
-                    "Please specify a channel to post the tournament in.",
-                    ephemeral=True
-                )
-                return
-            modal = TournamentCreateModal(self, channel)
+            modal = TournamentCreateModal(self)
             await interaction.response.send_modal(modal)
             
         elif action == "list":
@@ -607,3 +633,429 @@ class ShadyEvents(commands.Cog):
 async def setup(bot: Red):
     cog = ShadyEvents(bot)
     await bot.add_cog(cog)
+
+    @app_commands.command(name="tournament_manage", description="Manage tournament brackets and matches")
+    @app_commands.describe(
+        action="Action to perform",
+        tournament_id="Tournament ID",
+        match_number="Match number (for reporting)",
+        winner="Winner team name or participant mention (for reporting)"
+    )
+    @app_commands.choices(action=[
+        app_commands.Choice(name="Start Tournament", value="start"),
+        app_commands.Choice(name="View Bracket", value="bracket"),
+        app_commands.Choice(name="Report Match", value="report"),
+    ])
+    async def tournament_manage(
+        self,
+        interaction: discord.Interaction,
+        action: str,
+        tournament_id: str,
+        match_number: Optional[int] = None,
+        winner: Optional[str] = None
+    ):
+        """Manage tournament brackets and results."""
+        if not await self.is_authorized(interaction):
+            await interaction.response.send_message(
+                "You don't have permission to manage tournaments.",
+                ephemeral=True
+            )
+            return
+        
+        tournaments = await self.config.guild(interaction.guild).tournaments()
+        
+        if tournament_id not in tournaments:
+            await interaction.response.send_message("Tournament not found.", ephemeral=True)
+            return
+        
+        tournament = tournaments[tournament_id]
+        
+        if action == "start":
+            await self.start_tournament(interaction, tournament_id, tournament)
+        elif action == "bracket":
+            await self.show_bracket(interaction, tournament_id, tournament)
+        elif action == "report":
+            if match_number is None or winner is None:
+                await interaction.response.send_message(
+                    "Please provide both match_number and winner for match reporting.",
+                    ephemeral=True
+                )
+                return
+            await self.report_match(interaction, tournament_id, tournament, match_number, winner)
+
+    async def start_tournament(
+        self,
+        interaction: discord.Interaction,
+        tournament_id: str,
+        tournament: Dict[str, Any]
+    ):
+        """Start tournament, assign pickup players, and generate bracket."""
+        if tournament["started"]:
+            await interaction.response.send_message("Tournament already started!", ephemeral=True)
+            return
+        
+        # Handle different tournament types
+        if tournament["type"] == "solo":
+            participants = tournament["participants"]
+            if len(participants) < 2:
+                await interaction.response.send_message(
+                    "Need at least 2 participants to start tournament!",
+                    ephemeral=True
+                )
+                return
+            bracket = self.generate_bracket(participants, is_team=False)
+            
+        elif tournament["type"] == "team" and tournament["team_mode"] == "random":
+            # Random teams - assign participants to random teams
+            participants = tournament["participants"]
+            team_size = tournament["team_size"]
+            
+            if len(participants) < team_size * 2:
+                await interaction.response.send_message(
+                    f"Need at least {team_size * 2} participants to form 2 teams!",
+                    ephemeral=True
+                )
+                return
+            
+            # Shuffle and create teams
+            random.shuffle(participants)
+            teams = {}
+            team_names = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", 
+                         "India", "Juliet", "Kilo", "Lima", "Mike", "November", "Oscar", "Papa"]
+            
+            for i in range(0, len(participants), team_size):
+                team_participants = participants[i:i+team_size]
+                if len(team_participants) == team_size:
+                    team_name = f"Team {team_names[len(teams)]}"
+                    teams[team_name] = team_participants
+            
+            if len(teams) < 2:
+                await interaction.response.send_message(
+                    f"Not enough complete teams! Need at least 2 complete teams of {team_size}.",
+                    ephemeral=True
+                )
+                return
+            
+            bracket = self.generate_bracket(list(teams.keys()), is_team=True)
+            
+            # Store teams in tournament
+            async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
+                all_tournaments[tournament_id]["teams"] = teams
+                all_tournaments[tournament_id]["bracket"] = bracket
+                all_tournaments[tournament_id]["started"] = True
+            
+        elif tournament["type"] == "team" and tournament["team_mode"] == "premade":
+            # Pre-made teams with pickup players
+            teams = dict(tournament["teams"])  # Copy teams
+            pickup_players = list(tournament["pickup_players"])  # Copy pickups
+            team_size = tournament["team_size"]
+            
+            # Shuffle pickup players for random assignment
+            random.shuffle(pickup_players)
+            
+            # Fill incomplete teams
+            for team_name, players in list(teams.items()):
+                needed = team_size - len(players)
+                if needed > 0 and pickup_players:
+                    # Add pickup players to this team
+                    added_players = pickup_players[:needed]
+                    teams[team_name].extend(added_players)
+                    pickup_players = pickup_players[needed:]
+            
+            # Create new teams from remaining pickup players
+            new_team_counter = 1
+            while len(pickup_players) >= team_size:
+                team_name = f"Pickup Team {new_team_counter}"
+                teams[team_name] = pickup_players[:team_size]
+                pickup_players = pickup_players[team_size:]
+                new_team_counter += 1
+            
+            if len(teams) < 2:
+                await interaction.response.send_message(
+                    "Need at least 2 complete teams to start tournament!",
+                    ephemeral=True
+                )
+                return
+            
+            bracket = self.generate_bracket(list(teams.keys()), is_team=True)
+            
+            # Store updated teams and bracket
+            async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
+                all_tournaments[tournament_id]["teams"] = teams
+                all_tournaments[tournament_id]["bracket"] = bracket
+                all_tournaments[tournament_id]["started"] = True
+                all_tournaments[tournament_id]["pickup_players"] = pickup_players  # Remaining (not enough for a team)
+        
+        # Announce tournament start
+        channel = interaction.guild.get_channel(tournament["channel_id"])
+        
+        # Create announcement embed
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name']} - Tournament Started!",
+            description=f"**Game:** {tournament['game']}",
+            color=discord.Color.green()
+        )
+        
+        if tournament["type"] == "team":
+            # Show all teams
+            teams_text = ""
+            final_teams = tournaments[tournament_id]["teams"]
+            for team_name, players in final_teams.items():
+                player_mentions = [f"<@{pid}>" for pid in players]
+                teams_text += f"**{team_name}:** {', '.join(player_mentions)}\n"
+            
+            embed.add_field(name="Teams", value=teams_text or "No teams", inline=False)
+        else:
+            # Show participants
+            participant_mentions = [f"<@{pid}>" for pid in participants]
+            embed.add_field(
+                name=f"Participants ({len(participants)})",
+                value=", ".join(participant_mentions) if participant_mentions else "None",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="📊 View Bracket",
+            value=f"Use `/tournament_manage bracket tournament_id:{tournament_id}`",
+            inline=False
+        )
+        
+        if channel:
+            await channel.send(embed=embed)
+        
+        await interaction.response.send_message(
+            f"Tournament started! {len(bracket)} matches in Round 1.",
+            ephemeral=True
+        )
+
+
+    def generate_bracket(self, entities: List, is_team: bool) -> List[Dict[str, Any]]:
+        """Generate single-elimination bracket."""
+        # Shuffle for fairness
+        entities = list(entities)
+        random.shuffle(entities)
+        
+        # Round 1 matches
+        matches = []
+        match_num = 1
+        
+        for i in range(0, len(entities) - 1, 2):
+            matches.append({
+                "match_number": match_num,
+                "round": 1,
+                "participant1": entities[i],
+                "participant2": entities[i + 1],
+                "winner": None,
+                "completed": False
+            })
+            match_num += 1
+        
+        # Handle odd number - give bye
+        if len(entities) % 2 != 0:
+            matches.append({
+                "match_number": match_num,
+                "round": 1,
+                "participant1": entities[-1],
+                "participant2": "BYE",
+                "winner": entities[-1],  # Auto-win
+                "completed": True
+            })
+        
+        return matches
+
+    async def show_bracket(
+        self,
+        interaction: discord.Interaction,
+        tournament_id: str,
+        tournament: Dict[str, Any]
+    ):
+        """Display current bracket status."""
+        if not tournament["started"]:
+            await interaction.response.send_message("Tournament hasn't started yet!", ephemeral=True)
+            return
+        
+        bracket = tournament.get("bracket", [])
+        if not bracket:
+            await interaction.response.send_message("No bracket generated yet!", ephemeral=True)
+            return
+        
+        # Group by rounds
+        rounds = {}
+        for match in bracket:
+            round_num = match["round"]
+            if round_num not in rounds:
+                rounds[round_num] = []
+            rounds[round_num].append(match)
+        
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name']} - Bracket",
+            description=f"**Game:** {tournament['game']}",
+            color=discord.Color.blue()
+        )
+        
+        for round_num in sorted(rounds.keys()):
+            matches = rounds[round_num]
+            match_text = ""
+            
+            for match in matches:
+                p1 = match["participant1"]
+                p2 = match["participant2"]
+                
+                # Format participant names
+                if tournament["type"] == "team":
+                    p1_display = p1
+                    p2_display = p2
+                else:
+                    p1_display = f"<@{p1}>" if p2 != "BYE" else f"<@{p1}>"
+                    p2_display = f"<@{p2}>" if p2 != "BYE" else p2
+                
+                status = "✅" if match["completed"] else "⏳"
+                winner_display = ""
+                if match["winner"]:
+                    if tournament["type"] == "team":
+                        winner_display = f" → **{match['winner']} wins!**"
+                    else:
+                        winner_display = f" → **<@{match['winner']}> wins!**"
+                
+                match_text += f"{status} Match #{match['match_number']}: {p1_display} vs {p2_display}{winner_display}\n"
+            
+            round_name = f"Round {round_num}"
+            if round_num == max(rounds.keys()) and len(matches) == 1:
+                round_name = "🏆 Finals"
+            
+            embed.add_field(name=round_name, value=match_text or "No matches", inline=False)
+        
+        await interaction.response.send_message(embed=embed, ephemeral=False)
+
+
+    async def report_match(
+        self,
+        interaction: discord.Interaction,
+        tournament_id: str,
+        tournament: Dict[str, Any],
+        match_number: int,
+        winner_input: str
+    ):
+        """Report match result and advance winner."""
+        if not tournament["started"]:
+            await interaction.response.send_message("Tournament hasn't started!", ephemeral=True)
+            return
+        
+        bracket = tournament.get("bracket", [])
+        
+        # Find match
+        match = None
+        for m in bracket:
+            if m["match_number"] == match_number:
+                match = m
+                break
+        
+        if not match:
+            await interaction.response.send_message(f"Match #{match_number} not found!", ephemeral=True)
+            return
+        
+        if match["completed"]:
+            await interaction.response.send_message(f"Match #{match_number} already completed!", ephemeral=True)
+            return
+        
+        # Validate winner
+        winner = None
+        if tournament["type"] == "team":
+            # Team tournament - winner_input is team name
+            if winner_input == match["participant1"] or winner_input == match["participant2"]:
+                winner = winner_input
+        else:
+            # Solo tournament - parse user mention or ID
+            winner_id = None
+            if winner_input.startswith("<@") and winner_input.endswith(">"):
+                winner_id = int(winner_input.replace("<@", "").replace("!", "").replace(">", ""))
+            else:
+                try:
+                    winner_id = int(winner_input)
+                except ValueError:
+                    pass
+            
+            if winner_id in [match["participant1"], match["participant2"]]:
+                winner = winner_id
+        
+        if not winner:
+            await interaction.response.send_message(
+                f"Invalid winner! Must be one of the participants in Match #{match_number}.",
+                ephemeral=True
+            )
+            return
+        
+        # Mark match as complete
+        match["completed"] = True
+        match["winner"] = winner
+        
+        # Check if round is complete
+        current_round = match["round"]
+        round_matches = [m for m in bracket if m["round"] == current_round]
+        round_complete = all(m["completed"] for m in round_matches)
+        
+        if round_complete:
+            # Create next round
+            round_winners = [m["winner"] for m in round_matches]
+            
+            if len(round_winners) > 1:
+                # Create next round matches
+                next_round = current_round + 1
+                match_counter = max([m["match_number"] for m in bracket]) + 1
+                
+                for i in range(0, len(round_winners) - 1, 2):
+                    bracket.append({
+                        "match_number": match_counter,
+                        "round": next_round,
+                        "participant1": round_winners[i],
+                        "participant2": round_winners[i + 1],
+                        "winner": None,
+                        "completed": False
+                    })
+                    match_counter += 1
+                
+                # Handle odd number - bye
+                if len(round_winners) % 2 != 0:
+                    bracket.append({
+                        "match_number": match_counter,
+                        "round": next_round,
+                        "participant1": round_winners[-1],
+                        "participant2": "BYE",
+                        "winner": round_winners[-1],
+                        "completed": True
+                    })
+            else:
+                # Tournament complete!
+                champion = round_winners[0]
+                
+                channel = interaction.guild.get_channel(tournament["channel_id"])
+                if channel:
+                    champion_display = champion if tournament["type"] == "team" else f"<@{champion}>"
+                    await channel.send(
+                        f"🎉 **TOURNAMENT COMPLETE!** 🎉\n\n"
+                        f"**Champion:** {champion_display}\n"
+                        f"**Tournament:** {tournament['name']}"
+                    )
+        
+        # Save updated bracket
+        async with self.config.guild(interaction.guild).tournaments() as all_tournaments:
+            all_tournaments[tournament_id]["bracket"] = bracket
+        
+        # Announce result
+        channel = interaction.guild.get_channel(tournament["channel_id"])
+        if channel:
+            p1_display = match["participant1"] if tournament["type"] == "team" else f"<@{match['participant1']}>"
+            p2_display = match["participant2"] if tournament["type"] == "team" else f"<@{match['participant2']}>"
+            winner_display = winner if tournament["type"] == "team" else f"<@{winner}>"
+            
+            await channel.send(
+                f"📊 **Match #{match_number} Result**\n"
+                f"{p1_display} vs {p2_display}\n"
+                f"**Winner:** {winner_display}"
+            )
+        
+        await interaction.response.send_message(
+            f"Match #{match_number} result recorded! Winner: {winner_display}",
+            ephemeral=True
+        )
+

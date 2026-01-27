@@ -1,0 +1,1 @@
+from .shadyevents import setup

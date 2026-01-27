@@ -1,0 +1,14 @@
+{
+    "author": ["ShadyTidus"],
+    "install_msg": "Thanks for installing ShadyEvents!\n\nUse `/tournament create` to start a tournament.\nSupports solo and team tournaments with bracket generation.\nManage match results with `/tournament report`.",
+    "name": "ShadyEvents",
+    "short": "Tournament and bracket management system",
+    "description": "Comprehensive tournament system with solo/team support, random/premade team modes, pickup player pools, automatic bracket generation, match tracking, and result reporting. Perfect for organizing gaming tournaments across multiple titles.",
+    "end_user_data_statement": "This cog stores user IDs for tournament participants, team rosters, match results, and tournament data. Data is retained for historical purposes.",
+    "tags": ["tournament", "events", "brackets", "esports", "competition"],
+    "requirements": ["pillow"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}

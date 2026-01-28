@@ -294,25 +294,89 @@ class GiveawayOptionsView(discord.ui.View):
         self.stop()
 
 
-class GiveawayEnterView(discord.ui.View):
-    """View with Enter and Leave buttons for giveaway participation."""
+class PersistentGiveawayView(discord.ui.View):
+    """Persistent view with Enter and Leave buttons for giveaway participation.
+    
+    This view survives bot restarts by encoding the giveaway_id in the custom_id
+    and using a class-level interaction handler.
+    """
 
-    def __init__(self, cog: "ShadyGiveaway", giveaway_id: str):
+    def __init__(self, cog: "ShadyGiveaway" = None):
         super().__init__(timeout=None)
         self.cog = cog
-        self.giveaway_id = giveaway_id
-
-    @discord.ui.button(label="🎉 Enter Giveaway", style=discord.ButtonStyle.green, custom_id="giveaway_enter")
-    async def enter_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.handle_entry(interaction, self.giveaway_id)
     
-    @discord.ui.button(label="🚪 Leave Giveaway", style=discord.ButtonStyle.secondary, custom_id="giveaway_leave")
+    @discord.ui.button(
+        label="🎉 Enter Giveaway",
+        style=discord.ButtonStyle.green,
+        custom_id="shady_giveaway:enter"
+    )
+    async def enter_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle enter button click."""
+        if not self.cog:
+            await interaction.response.send_message(
+                "Giveaway system is still loading. Please try again in a moment.",
+                ephemeral=True
+            )
+            return
+        
+        # Get giveaway_id from the message
+        giveaway_id = await self._get_giveaway_id_from_message(interaction)
+        if not giveaway_id:
+            await interaction.response.send_message(
+                "Could not find giveaway information. The giveaway may have been deleted.",
+                ephemeral=True
+            )
+            return
+        
+        await self.cog.handle_entry(interaction, giveaway_id)
+    
+    @discord.ui.button(
+        label="🚪 Leave Giveaway",
+        style=discord.ButtonStyle.secondary,
+        custom_id="shady_giveaway:leave"
+    )
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.handle_leave(interaction, self.giveaway_id)
+        """Handle leave button click."""
+        if not self.cog:
+            await interaction.response.send_message(
+                "Giveaway system is still loading. Please try again in a moment.",
+                ephemeral=True
+            )
+            return
+        
+        # Get giveaway_id from the message
+        giveaway_id = await self._get_giveaway_id_from_message(interaction)
+        if not giveaway_id:
+            await interaction.response.send_message(
+                "Could not find giveaway information. The giveaway may have been deleted.",
+                ephemeral=True
+            )
+            return
+        
+        await self.cog.handle_leave(interaction, giveaway_id)
+    
+    async def _get_giveaway_id_from_message(self, interaction: discord.Interaction) -> Optional[str]:
+        """Extract giveaway_id from the message embed footer."""
+        if not interaction.message or not interaction.message.embeds:
+            return None
+        
+        embed = interaction.message.embeds[0]
+        if embed.footer and embed.footer.text:
+            # Footer format: "Giveaway ID: {giveaway_id}"
+            footer_text = embed.footer.text
+            if footer_text.startswith("Giveaway ID: "):
+                return footer_text.replace("Giveaway ID: ", "")
+        
+        return None
 
 
 class WinnerClaimView(discord.ui.View):
-    """View with Yes/No buttons for winners to claim prizes."""
+    """View with Yes/No buttons for winners to claim prizes.
+    
+    Note: This view is NOT persistent because it has a timeout and is sent via DM.
+    The timeout handler needs the specific winner_id which can't easily be persisted.
+    If the bot restarts during a claim window, the winner will need to be rerolled.
+    """
 
     def __init__(self, cog: "ShadyGiveaway", giveaway_id: str, winner_id: int, timeout_seconds: int):
         super().__init__(timeout=timeout_seconds)
@@ -460,9 +524,16 @@ class ShadyGiveaway(commands.Cog):
         
         self.giveaway_check_task = None
         
+        # Create persistent view and set cog reference
+        self.persistent_view = PersistentGiveawayView(cog=self)
+        
     async def cog_load(self):
-        """Start background task when cog loads."""
+        """Start background task and register persistent view when cog loads."""
+        # Register the persistent view so buttons work after restart
+        self.bot.add_view(self.persistent_view)
+        
         self.giveaway_check_task = asyncio.create_task(self.check_ended_giveaways())
+        log.info("ShadyGiveaway: Persistent view registered, background task started")
         
     async def cog_unload(self):
         """Cancel background task when cog unloads."""
@@ -885,7 +956,8 @@ class ShadyGiveaway(commands.Cog):
             
             embed.set_footer(text=f"Giveaway ID: {giveaway_id}")
             
-            view = GiveawayEnterView(self, giveaway_id)
+            # Use the persistent view
+            view = PersistentGiveawayView(cog=self)
             message = await channel.send(embed=embed, view=view)
             
             async with self.config.guild(interaction.guild).giveaways() as giveaways:
@@ -968,10 +1040,10 @@ class ShadyGiveaway(commands.Cog):
             
             all_giveaways[giveaway_id]["entries"][user_id_str] = entry_count
         
-        # Build response
-        total_entries = sum(giveaways[giveaway_id].get("entries", {}).values()) + entry_count
-        if isinstance(giveaways[giveaway_id].get("entries"), list):
-            total_entries = len(giveaways[giveaway_id]["entries"]) + 1
+        # Build response - get fresh count
+        giveaways_updated = await self.config.guild(interaction.guild).giveaways()
+        entries_updated = giveaways_updated[giveaway_id].get("entries", {})
+        total_entries = sum(entries_updated.values()) if isinstance(entries_updated, dict) else len(entries_updated)
         
         bonus_info = ""
         if entry_count > 1:

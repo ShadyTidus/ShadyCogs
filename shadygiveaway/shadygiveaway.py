@@ -1,6 +1,7 @@
 """
 ShadyGiveaway - Advanced giveaway system with prize code management
-Features prize claim verification with Yes/No buttons, automatic rerolls, and role requirements.
+Features prize claim verification with Yes/No buttons, automatic rerolls, role requirements,
+and bonus entries for Nitro/special event roles.
 """
 
 import asyncio
@@ -21,7 +22,7 @@ log = logging.getLogger("red.shadycogs.shadygiveaway")
 
 
 class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
-    """Modal for creating a new giveaway."""
+    """Modal for creating a new giveaway - basic info only."""
 
     description = discord.ui.TextInput(
         label="Prize & Description",
@@ -100,15 +101,24 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
                 )
                 return
 
-            await self.cog.create_giveaway(
-                interaction,
-                channel,
-                str(self.description),
-                duration_delta,
-                winners,
-                str(self.prize_code),
-                claim_timeout_delta,
+            # Store pending giveaway data and show options view
+            pending_data = {
+                "channel_id": channel.id,
+                "description": str(self.description),
+                "duration_seconds": int(duration_delta.total_seconds()),
+                "winners_count": winners,
+                "prize_code": str(self.prize_code),
+                "claim_timeout_seconds": int(claim_timeout_delta.total_seconds()),
+            }
+            
+            view = GiveawayOptionsView(self.cog, pending_data, interaction.guild)
+            await interaction.response.send_message(
+                "**Step 2: Configure Entry Requirements & Bonuses**\n\n"
+                "Select role requirements and bonus entry options below:",
+                view=view,
+                ephemeral=True
             )
+            
         except Exception as e:
             error_msg = f"**Error in modal submission:**\n```\n{type(e).__name__}: {str(e)}\n```"
             if not interaction.response.is_done():
@@ -118,8 +128,174 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
             log.error(f"Error in modal submission: {e}", exc_info=True)
 
 
+class GiveawayOptionsView(discord.ui.View):
+    """View for configuring giveaway role requirements and bonus entries."""
+
+    def __init__(self, cog: "ShadyGiveaway", pending_data: Dict[str, Any], guild: discord.Guild):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.pending_data = pending_data
+        self.guild = guild
+        
+        # Selected options
+        self.min_role_id: Optional[int] = None
+        self.nitro_bonus_enabled: bool = False
+        self.special_bonus_role_id: Optional[int] = None
+        
+        # Build role options (exclude @everyone and bot roles)
+        self.available_roles = [
+            r for r in sorted(guild.roles, key=lambda x: x.position, reverse=True)
+            if not r.is_bot_managed() and not r.is_default() and not r.is_integration()
+        ]
+        
+        # Add dropdowns
+        self._add_min_role_select()
+        self._add_nitro_toggle_select()
+        self._add_special_bonus_select()
+    
+    def _add_min_role_select(self):
+        """Add minimum role requirement dropdown."""
+        options = [
+            discord.SelectOption(
+                label="No requirement",
+                value="none",
+                description="Anyone can enter",
+                emoji="✅"
+            )
+        ]
+        
+        for role in self.available_roles[:24]:  # Leave room for "No requirement"
+            options.append(
+                discord.SelectOption(
+                    label=role.name[:100],
+                    value=str(role.id),
+                    description=f"Position: {role.position}"
+                )
+            )
+        
+        select = discord.ui.Select(
+            placeholder="Minimum Role Required to Enter",
+            options=options,
+            custom_id="min_role_select",
+            row=0
+        )
+        select.callback = self._min_role_callback
+        self.add_item(select)
+    
+    def _add_nitro_toggle_select(self):
+        """Add nitro bonus toggle dropdown."""
+        options = [
+            discord.SelectOption(
+                label="Nitro Bonus Disabled",
+                value="disabled",
+                description="No bonus entry for Nitro role",
+                emoji="❌"
+            ),
+            discord.SelectOption(
+                label="Nitro Bonus Enabled",
+                value="enabled",
+                description="+1 entry for users with Nitro role",
+                emoji="💎"
+            )
+        ]
+        
+        select = discord.ui.Select(
+            placeholder="Nitro Bonus (+1 entry)",
+            options=options,
+            custom_id="nitro_toggle_select",
+            row=1
+        )
+        select.callback = self._nitro_toggle_callback
+        self.add_item(select)
+    
+    def _add_special_bonus_select(self):
+        """Add special bonus role dropdown."""
+        options = [
+            discord.SelectOption(
+                label="No Bonus",
+                value="none",
+                description="No special bonus role for this giveaway",
+                emoji="➖"
+            )
+        ]
+        
+        for role in self.available_roles[:24]:  # Leave room for "No Bonus"
+            options.append(
+                discord.SelectOption(
+                    label=role.name[:100],
+                    value=str(role.id),
+                    description=f"+1 entry for users with this role"
+                )
+            )
+        
+        select = discord.ui.Select(
+            placeholder="Special Bonus Role (+1 entry)",
+            options=options,
+            custom_id="special_bonus_select",
+            row=2
+        )
+        select.callback = self._special_bonus_callback
+        self.add_item(select)
+    
+    async def _min_role_callback(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+        self.min_role_id = None if value == "none" else int(value)
+        
+        role_name = "No requirement"
+        if self.min_role_id:
+            role = self.guild.get_role(self.min_role_id)
+            role_name = role.name if role else "Unknown"
+        
+        await interaction.response.send_message(
+            f"✅ Minimum role set to: **{role_name}**",
+            ephemeral=True
+        )
+    
+    async def _nitro_toggle_callback(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+        self.nitro_bonus_enabled = value == "enabled"
+        
+        status = "Enabled 💎" if self.nitro_bonus_enabled else "Disabled"
+        await interaction.response.send_message(
+            f"✅ Nitro bonus: **{status}**",
+            ephemeral=True
+        )
+    
+    async def _special_bonus_callback(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+        self.special_bonus_role_id = None if value == "none" else int(value)
+        
+        role_name = "No Bonus"
+        if self.special_bonus_role_id:
+            role = self.guild.get_role(self.special_bonus_role_id)
+            role_name = role.name if role else "Unknown"
+        
+        await interaction.response.send_message(
+            f"✅ Special bonus role set to: **{role_name}**",
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="Create Giveaway", style=discord.ButtonStyle.green, row=3)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirm and create the giveaway."""
+        await self.cog.create_giveaway(
+            interaction,
+            self.pending_data,
+            self.min_role_id,
+            self.nitro_bonus_enabled,
+            self.special_bonus_role_id
+        )
+        self.stop()
+    
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red, row=3)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Cancel giveaway creation."""
+        await interaction.response.send_message("Giveaway creation cancelled.", ephemeral=True)
+        self.stop()
+
+
 class GiveawayEnterView(discord.ui.View):
-    """View with Enter button for giveaway participation."""
+    """View with Enter and Leave buttons for giveaway participation."""
 
     def __init__(self, cog: "ShadyGiveaway", giveaway_id: str):
         super().__init__(timeout=None)
@@ -129,6 +305,10 @@ class GiveawayEnterView(discord.ui.View):
     @discord.ui.button(label="🎉 Enter Giveaway", style=discord.ButtonStyle.green, custom_id="giveaway_enter")
     async def enter_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.handle_entry(interaction, self.giveaway_id)
+    
+    @discord.ui.button(label="🚪 Leave Giveaway", style=discord.ButtonStyle.secondary, custom_id="giveaway_leave")
+    async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.handle_leave(interaction, self.giveaway_id)
 
 
 class WinnerClaimView(discord.ui.View):
@@ -172,11 +352,15 @@ class GiveawaySelectView(discord.ui.View):
         for giveaway_id, giveaway in giveaways[:25]:  # Discord limit is 25 options
             status = "🎲 Picking" if giveaway.get("picking_winners") else "🟢 Active"
             desc = giveaway["description"][:50] + "..." if len(giveaway["description"]) > 50 else giveaway["description"]
+            
+            # Count total entries (sum of all entry weights)
+            total_entries = sum(giveaway.get("entries", {}).values()) if isinstance(giveaway.get("entries"), dict) else len(giveaway.get("entries", []))
+            
             options.append(
                 discord.SelectOption(
                     label=desc,
                     value=giveaway_id,
-                    description=f"{status} | {len(giveaway['entries'])} entries"
+                    description=f"{status} | {total_entries} entries"
                 )
             )
         
@@ -200,6 +384,67 @@ class GiveawaySelectView(discord.ui.View):
         self.stop()
 
 
+class NitroRoleSelectView(discord.ui.View):
+    """View for selecting the server's Nitro role."""
+
+    def __init__(self, cog: "ShadyGiveaway", guild: discord.Guild):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.guild = guild
+        
+        # Build role options
+        available_roles = [
+            r for r in sorted(guild.roles, key=lambda x: x.position, reverse=True)
+            if not r.is_bot_managed() and not r.is_default() and not r.is_integration()
+        ]
+        
+        options = [
+            discord.SelectOption(
+                label="Clear Nitro Role",
+                value="none",
+                description="Remove configured Nitro role",
+                emoji="❌"
+            )
+        ]
+        
+        for role in available_roles[:24]:
+            options.append(
+                discord.SelectOption(
+                    label=role.name[:100],
+                    value=str(role.id),
+                    description=f"Set as Nitro bonus role"
+                )
+            )
+        
+        select = discord.ui.Select(
+            placeholder="Select the Nitro role for this server...",
+            options=options
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+    
+    async def select_callback(self, interaction: discord.Interaction):
+        value = self.children[0].values[0]
+        
+        if value == "none":
+            await self.cog.config.guild(self.guild).nitro_role_id.set(None)
+            await interaction.response.send_message(
+                "✅ Nitro role has been cleared. Nitro bonus will not work until a role is set.",
+                ephemeral=True
+            )
+        else:
+            role_id = int(value)
+            role = self.guild.get_role(role_id)
+            await self.cog.config.guild(self.guild).nitro_role_id.set(role_id)
+            await interaction.response.send_message(
+                f"✅ Nitro role set to: **{role.name}**\n\n"
+                f"Users with this role will get +1 entry when Nitro bonus is enabled for a giveaway.",
+                ephemeral=True
+            )
+        
+        self.stop()
+
+
 class ShadyGiveaway(commands.Cog):
     """Advanced giveaway system with prize code management and claim verification."""
 
@@ -209,6 +454,7 @@ class ShadyGiveaway(commands.Cog):
         
         default_guild = {
             "giveaways": {},
+            "nitro_role_id": None,
         }
         self.config.register_guild(**default_guild)
         
@@ -269,6 +515,79 @@ class ShadyGiveaway(commands.Cog):
             return None
         
         return timedelta(seconds=value * multipliers[unit])
+
+    def calculate_entries(
+        self,
+        member: discord.Member,
+        giveaway: Dict[str, Any],
+        nitro_role_id: Optional[int]
+    ) -> int:
+        """Calculate how many entries a member gets based on their roles."""
+        entries = 1  # Base entry
+        
+        # Check Nitro bonus
+        if giveaway.get("nitro_bonus_enabled") and nitro_role_id:
+            if any(r.id == nitro_role_id for r in member.roles):
+                entries += 1
+        
+        # Check special bonus role
+        special_role_id = giveaway.get("special_bonus_role_id")
+        if special_role_id:
+            if any(r.id == special_role_id for r in member.roles):
+                entries += 1
+        
+        return entries
+
+    def check_role_requirement(
+        self,
+        member: discord.Member,
+        min_role_id: Optional[int]
+    ) -> bool:
+        """Check if member meets the minimum role requirement."""
+        if not min_role_id:
+            return True  # No requirement
+        
+        min_role = member.guild.get_role(min_role_id)
+        if not min_role:
+            return True  # Role no longer exists, allow entry
+        
+        # Check if user has the min role or any role higher in hierarchy
+        for role in member.roles:
+            if role.position >= min_role.position and not role.is_default():
+                return True
+        
+        return False
+
+    @app_commands.command(name="giveawaynitro", description="Set the Nitro role for bonus entries")
+    async def giveawaynitro(self, interaction: discord.Interaction):
+        """Configure which role counts as 'Nitro' for bonus entries."""
+        try:
+            if not await self.is_authorized(interaction):
+                await interaction.response.send_message(
+                    "You don't have permission to configure giveaways.",
+                    ephemeral=True
+                )
+                return
+            
+            current_nitro_id = await self.config.guild(interaction.guild).nitro_role_id()
+            current_role = interaction.guild.get_role(current_nitro_id) if current_nitro_id else None
+            
+            current_text = f"**Current Nitro role:** {current_role.mention if current_role else 'Not set'}\n\n"
+            
+            view = NitroRoleSelectView(self, interaction.guild)
+            await interaction.response.send_message(
+                f"{current_text}Select the role that represents Nitro subscribers in your server:",
+                view=view,
+                ephemeral=True
+            )
+            
+        except Exception as e:
+            error_msg = f"**Error:**\n```\n{type(e).__name__}: {str(e)}\n```"
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(error_msg, ephemeral=True)
+            log.error(f"Error in giveawaynitro command: {e}", exc_info=True)
 
     @app_commands.command(name="giveaway", description="Create or list giveaways")
     @app_commands.describe(action="Action to perform")
@@ -439,16 +758,56 @@ class ShadyGiveaway(commands.Cog):
         embed.add_field(name="Host", value=host.mention if host else "Unknown", inline=True)
         embed.add_field(name="Status", value=status, inline=True)
         embed.add_field(name="Winners Needed", value=str(giveaway["winners_count"]), inline=True)
-        embed.add_field(name="Total Entries", value=str(len(giveaway["entries"])), inline=True)
+        
+        # Entry count - handle both old (list) and new (dict) formats
+        entries = giveaway.get("entries", {})
+        if isinstance(entries, dict):
+            unique_entrants = len(entries)
+            total_entries = sum(entries.values())
+            embed.add_field(name="Entrants", value=str(unique_entrants), inline=True)
+            embed.add_field(name="Total Entries", value=str(total_entries), inline=True)
+        else:
+            embed.add_field(name="Total Entries", value=str(len(entries)), inline=True)
+        
         embed.add_field(name="Winners Claimed", value=str(len(giveaway.get("winners_claimed", []))), inline=True)
         embed.add_field(name="Winners Picked", value=str(len(giveaway.get("winners_picked", []))), inline=True)
         embed.add_field(name="Claim Timeout", value=humanize_timedelta(seconds=giveaway["claim_timeout_seconds"]), inline=True)
         embed.add_field(name="Ends/Ended", value=f"<t:{giveaway['end_timestamp']}:R>", inline=True)
+        
+        # Role requirements
+        min_role_id = giveaway.get("min_role_id")
+        if min_role_id:
+            min_role = interaction.guild.get_role(min_role_id)
+            embed.add_field(name="Min Role Required", value=min_role.mention if min_role else "Deleted Role", inline=True)
+        else:
+            embed.add_field(name="Min Role Required", value="None", inline=True)
+        
+        # Bonus info
+        bonuses = []
+        if giveaway.get("nitro_bonus_enabled"):
+            nitro_role_id = await self.config.guild(interaction.guild).nitro_role_id()
+            nitro_role = interaction.guild.get_role(nitro_role_id) if nitro_role_id else None
+            bonuses.append(f"💎 Nitro ({nitro_role.mention if nitro_role else 'Not configured'})")
+        
+        special_role_id = giveaway.get("special_bonus_role_id")
+        if special_role_id:
+            special_role = interaction.guild.get_role(special_role_id)
+            bonuses.append(f"⭐ {special_role.mention if special_role else 'Deleted Role'}")
+        
+        embed.add_field(name="Bonus Roles", value="\n".join(bonuses) if bonuses else "None", inline=False)
+        
         embed.add_field(name="Giveaway ID", value=f"`{giveaway_id}`", inline=False)
         
         # Show participants if less than 20
-        if len(giveaway["entries"]) <= 20 and giveaway["entries"]:
-            participants = [f"<@{uid}>" for uid in giveaway["entries"]]
+        if isinstance(entries, dict) and len(entries) <= 20 and entries:
+            participants = [f"<@{uid}> ({count})" for uid, count in entries.items()]
+            embed.add_field(
+                name=f"Participants ({len(participants)})",
+                value=", ".join(participants),
+                inline=False
+            )
+        elif isinstance(entries, list) and len(entries) <= 20 and entries:
+            participants = [f"<@{uid}>" for uid in entries]
             embed.add_field(
                 name=f"Participants ({len(participants)})",
                 value=", ".join(participants),
@@ -469,27 +828,61 @@ class ShadyGiveaway(commands.Cog):
     async def create_giveaway(
         self,
         interaction: discord.Interaction,
-        channel: discord.TextChannel,
-        description: str,
-        duration: timedelta,
-        winners_count: int,
-        prize_code: str,
-        claim_timeout: timedelta,
+        pending_data: Dict[str, Any],
+        min_role_id: Optional[int],
+        nitro_bonus_enabled: bool,
+        special_bonus_role_id: Optional[int],
     ):
-        """Create a new giveaway."""
+        """Create a new giveaway with role requirements."""
         try:
+            channel = interaction.guild.get_channel(pending_data["channel_id"])
+            if not channel:
+                await interaction.response.send_message("Channel not found!", ephemeral=True)
+                return
+            
             giveaway_id = f"{interaction.guild.id}_{int(datetime.now(timezone.utc).timestamp())}"
+            duration = timedelta(seconds=pending_data["duration_seconds"])
             end_time = datetime.now(timezone.utc) + duration
             
+            # Build embed
             embed = discord.Embed(
                 title="🎉 GIVEAWAY",
-                description=description,
+                description=pending_data["description"],
                 color=discord.Color.gold(),
                 timestamp=datetime.now(timezone.utc)
             )
-            embed.add_field(name="Winners", value=str(winners_count), inline=True)
+            embed.add_field(name="Winners", value=str(pending_data["winners_count"]), inline=True)
             embed.add_field(name="Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=True)
             embed.add_field(name="Hosted by", value=interaction.user.mention, inline=True)
+            
+            # Add requirement info
+            req_text = []
+            if min_role_id:
+                min_role = interaction.guild.get_role(min_role_id)
+                req_text.append(f"**Requires:** {min_role.mention} or higher" if min_role else "")
+            
+            bonus_text = []
+            if nitro_bonus_enabled:
+                nitro_role_id = await self.config.guild(interaction.guild).nitro_role_id()
+                if nitro_role_id:
+                    nitro_role = interaction.guild.get_role(nitro_role_id)
+                    bonus_text.append(f"💎 {nitro_role.mention}: +1 entry" if nitro_role else "")
+            
+            if special_bonus_role_id:
+                special_role = interaction.guild.get_role(special_bonus_role_id)
+                bonus_text.append(f"⭐ {special_role.mention}: +1 entry" if special_role else "")
+            
+            if req_text or bonus_text:
+                info_value = ""
+                if req_text:
+                    info_value += "\n".join(filter(None, req_text))
+                if bonus_text:
+                    if info_value:
+                        info_value += "\n"
+                    info_value += "\n".join(filter(None, bonus_text))
+                if info_value:
+                    embed.add_field(name="Entry Info", value=info_value, inline=False)
+            
             embed.set_footer(text=f"Giveaway ID: {giveaway_id}")
             
             view = GiveawayEnterView(self, giveaway_id)
@@ -499,16 +892,19 @@ class ShadyGiveaway(commands.Cog):
                 giveaways[giveaway_id] = {
                     "message_id": message.id,
                     "channel_id": channel.id,
-                    "description": description,
+                    "description": pending_data["description"],
                     "host_id": interaction.user.id,
-                    "winners_count": winners_count,
-                    "prize_code": prize_code,
-                    "claim_timeout_seconds": int(claim_timeout.total_seconds()),
+                    "winners_count": pending_data["winners_count"],
+                    "prize_code": pending_data["prize_code"],
+                    "claim_timeout_seconds": pending_data["claim_timeout_seconds"],
                     "end_timestamp": int(end_time.timestamp()),
-                    "entries": [],
+                    "entries": {},  # Dict of user_id: entry_count
                     "ended": False,
                     "winners_picked": [],
                     "winners_claimed": [],
+                    "min_role_id": min_role_id,
+                    "nitro_bonus_enabled": nitro_bonus_enabled,
+                    "special_bonus_role_id": special_bonus_role_id,
                 }
             
             await interaction.response.send_message(
@@ -537,18 +933,99 @@ class ShadyGiveaway(commands.Cog):
             await interaction.response.send_message("This giveaway has ended.", ephemeral=True)
             return
         
-        if interaction.user.id in giveaway["entries"]:
-            await interaction.response.send_message("You've already entered this giveaway!", ephemeral=True)
+        member = interaction.user
+        user_id_str = str(member.id)
+        
+        # Check if already entered
+        entries = giveaway.get("entries", {})
+        if isinstance(entries, dict) and user_id_str in entries:
+            await interaction.response.send_message("You've already entered this giveaway! Use the Leave button if you want to withdraw.", ephemeral=True)
+            return
+        elif isinstance(entries, list) and member.id in entries:
+            await interaction.response.send_message("You've already entered this giveaway! Use the Leave button if you want to withdraw.", ephemeral=True)
             return
         
-        giveaway["entries"].append(interaction.user.id)
+        # Check role requirement
+        min_role_id = giveaway.get("min_role_id")
+        if not self.check_role_requirement(member, min_role_id):
+            min_role = interaction.guild.get_role(min_role_id)
+            await interaction.response.send_message(
+                f"You need the **{min_role.name}** role or higher to enter this giveaway!",
+                ephemeral=True
+            )
+            return
+        
+        # Calculate entries
+        nitro_role_id = await self.config.guild(interaction.guild).nitro_role_id()
+        entry_count = self.calculate_entries(member, giveaway, nitro_role_id)
+        
+        # Add entry
         async with self.config.guild(interaction.guild).giveaways() as all_giveaways:
-            all_giveaways[giveaway_id] = giveaway
+            # Migrate old format if needed
+            if isinstance(all_giveaways[giveaway_id].get("entries"), list):
+                old_entries = all_giveaways[giveaway_id]["entries"]
+                all_giveaways[giveaway_id]["entries"] = {str(uid): 1 for uid in old_entries}
+            
+            all_giveaways[giveaway_id]["entries"][user_id_str] = entry_count
+        
+        # Build response
+        total_entries = sum(giveaways[giveaway_id].get("entries", {}).values()) + entry_count
+        if isinstance(giveaways[giveaway_id].get("entries"), list):
+            total_entries = len(giveaways[giveaway_id]["entries"]) + 1
+        
+        bonus_info = ""
+        if entry_count > 1:
+            bonus_info = f"\n🎁 **Bonus entries:** You got {entry_count} entries!"
         
         await interaction.response.send_message(
-            f"You've been entered into the giveaway! Good luck! ({len(giveaway['entries'])} entries)",
+            f"You've been entered into the giveaway! Good luck!{bonus_info}\n"
+            f"*({total_entries} total entries)*",
             ephemeral=True
         )
+
+    async def handle_leave(self, interaction: discord.Interaction, giveaway_id: str):
+        """Handle user leaving a giveaway."""
+        giveaways = await self.config.guild(interaction.guild).giveaways()
+        
+        if giveaway_id not in giveaways:
+            await interaction.response.send_message("This giveaway no longer exists.", ephemeral=True)
+            return
+        
+        giveaway = giveaways[giveaway_id]
+        
+        if giveaway["ended"]:
+            await interaction.response.send_message("This giveaway has ended.", ephemeral=True)
+            return
+        
+        user_id_str = str(interaction.user.id)
+        entries = giveaway.get("entries", {})
+        
+        # Check if user is entered
+        if isinstance(entries, dict):
+            if user_id_str not in entries:
+                await interaction.response.send_message("You haven't entered this giveaway!", ephemeral=True)
+                return
+            
+            removed_entries = entries[user_id_str]
+            async with self.config.guild(interaction.guild).giveaways() as all_giveaways:
+                del all_giveaways[giveaway_id]["entries"][user_id_str]
+            
+            await interaction.response.send_message(
+                f"You've left the giveaway. ({removed_entries} {'entry' if removed_entries == 1 else 'entries'} removed)",
+                ephemeral=True
+            )
+        elif isinstance(entries, list):
+            if interaction.user.id not in entries:
+                await interaction.response.send_message("You haven't entered this giveaway!", ephemeral=True)
+                return
+            
+            async with self.config.guild(interaction.guild).giveaways() as all_giveaways:
+                all_giveaways[giveaway_id]["entries"].remove(interaction.user.id)
+            
+            await interaction.response.send_message(
+                "You've left the giveaway.",
+                ephemeral=True
+            )
 
     async def check_ended_giveaways(self):
         """Background task to check for ended giveaways."""
@@ -588,13 +1065,15 @@ class ShadyGiveaway(commands.Cog):
         except Exception as e:
             log.error(f"Error updating giveaway message: {e}")
         
-        if not giveaway["entries"]:
+        entries = giveaway.get("entries", {})
+        has_entries = (isinstance(entries, dict) and entries) or (isinstance(entries, list) and entries)
+        
+        if not has_entries:
             async with self.config.guild(guild).giveaways() as giveaways:
                 giveaways[giveaway_id]["ended"] = True
             try:
                 if channel:
                     await channel.send(f"Giveaway for **{giveaway['description']}** ended with no entries! 😢")
-                    # Update message to show ended
                     message = await channel.fetch_message(giveaway["message_id"])
                     embed = message.embeds[0]
                     embed.color = discord.Color.red()
@@ -607,7 +1086,7 @@ class ShadyGiveaway(commands.Cog):
         await self.pick_and_notify_winner(guild, giveaway_id, giveaway)
 
     async def pick_and_notify_winner(self, guild: discord.Guild, giveaway_id: str, giveaway: Dict[str, Any]):
-        """Pick a random winner from entries and send claim notification."""
+        """Pick a random winner from entries using weighted selection."""
         giveaways = await self.config.guild(guild).giveaways()
         giveaway = giveaways.get(giveaway_id)
         if not giveaway:
@@ -617,34 +1096,29 @@ class ShadyGiveaway(commands.Cog):
         if claimed_count >= giveaway["winners_count"]:
             return
         
-        available_entries = [e for e in giveaway["entries"] if e not in giveaway["winners_picked"]]
+        entries = giveaway.get("entries", {})
+        winners_picked = giveaway.get("winners_picked", [])
         
-        if not available_entries:
-            # No more entries - mark giveaway as ended
-            channel = guild.get_channel(giveaway["channel_id"])
-            remaining = giveaway["winners_count"] - claimed_count
+        # Build weighted pool excluding already picked winners
+        if isinstance(entries, dict):
+            available = {uid: count for uid, count in entries.items() if int(uid) not in winners_picked}
+            if not available:
+                await self._handle_no_entries_remaining(guild, giveaway_id, giveaway, claimed_count)
+                return
             
-            async with self.config.guild(guild).giveaways() as all_giveaways:
-                all_giveaways[giveaway_id]["ended"] = True
+            # Weighted random selection
+            pool = []
+            for uid, count in available.items():
+                pool.extend([int(uid)] * count)
             
-            if channel:
-                await channel.send(
-                    f"⚠️ Giveaway **{giveaway['description']}** has ended. "
-                    f"Needed {remaining} more winner(s) but no eligible entries remain. "
-                    f"Total winners: {claimed_count}/{giveaway['winners_count']}"
-                )
-                # Update message to show partial completion
-                try:
-                    message = await channel.fetch_message(giveaway["message_id"])
-                    embed = message.embeds[0]
-                    embed.color = discord.Color.orange()
-                    embed.title = f"🎉 GIVEAWAY ENDED - {claimed_count}/{giveaway['winners_count']} Winners"
-                    await message.edit(embed=embed)
-                except Exception as e:
-                    log.error(f"Error updating partial giveaway message: {e}")
-            return
-        
-        winner_id = random.choice(available_entries)
+            winner_id = random.choice(pool)
+        else:
+            # Legacy list format
+            available = [uid for uid in entries if uid not in winners_picked]
+            if not available:
+                await self._handle_no_entries_remaining(guild, giveaway_id, giveaway, claimed_count)
+                return
+            winner_id = random.choice(available)
         
         async with self.config.guild(guild).giveaways() as all_giveaways:
             all_giveaways[giveaway_id]["winners_picked"].append(winner_id)
@@ -653,12 +1127,10 @@ class ShadyGiveaway(commands.Cog):
         
         winner = guild.get_member(winner_id)
         if not winner:
-            # Refresh giveaway data and try again
             giveaways = await self.config.guild(guild).giveaways()
             await self.pick_and_notify_winner(guild, giveaway_id, giveaways.get(giveaway_id))
             return
         
-        # Get fresh data for winner number
         giveaways = await self.config.guild(guild).giveaways()
         giveaway = giveaways.get(giveaway_id)
         winner_number = len(giveaway["winners_picked"])
@@ -697,7 +1169,6 @@ class ShadyGiveaway(commands.Cog):
         
         try:
             await winner.send(embed=claim_embed, view=view)
-            # Announce in channel that winner was picked
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
                 await channel.send(f"🎲 {winner.mention} has been selected as a potential winner for **{giveaway['description']}**! Check your DMs to claim.")
@@ -710,6 +1181,29 @@ class ShadyGiveaway(commands.Cog):
                     embed=claim_embed,
                     view=view
                 )
+
+    async def _handle_no_entries_remaining(self, guild: discord.Guild, giveaway_id: str, giveaway: Dict[str, Any], claimed_count: int):
+        """Handle case when no more eligible entries remain."""
+        channel = guild.get_channel(giveaway["channel_id"])
+        remaining = giveaway["winners_count"] - claimed_count
+        
+        async with self.config.guild(guild).giveaways() as all_giveaways:
+            all_giveaways[giveaway_id]["ended"] = True
+        
+        if channel:
+            await channel.send(
+                f"⚠️ Giveaway **{giveaway['description']}** has ended. "
+                f"Needed {remaining} more winner(s) but no eligible entries remain. "
+                f"Total winners: {claimed_count}/{giveaway['winners_count']}"
+            )
+            try:
+                message = await channel.fetch_message(giveaway["message_id"])
+                embed = message.embeds[0]
+                embed.color = discord.Color.orange()
+                embed.title = f"🎉 GIVEAWAY ENDED - {claimed_count}/{giveaway['winners_count']} Winners"
+                await message.edit(embed=embed)
+            except Exception as e:
+                log.error(f"Error updating partial giveaway message: {e}")
 
     async def handle_claim_response(
         self,
@@ -859,7 +1353,14 @@ class ShadyGiveaway(commands.Cog):
             channel_mention = channel.mention if channel else "Unknown Channel"
             
             end_time = giveaway["end_timestamp"]
-            entries_count = len(giveaway["entries"])
+            
+            entries = giveaway.get("entries", {})
+            if isinstance(entries, dict):
+                entrants_count = len(entries)
+                total_entries = sum(entries.values())
+                entries_text = f"Entrants: {entrants_count} ({total_entries} entries)"
+            else:
+                entries_text = f"Entries: {len(entries)}"
             
             if giveaway.get("picking_winners", False):
                 status = "🎲 Picking Winners"
@@ -870,7 +1371,7 @@ class ShadyGiveaway(commands.Cog):
                 name=f"{giveaway['description']}",
                 value=f"Status: {status}\n"
                       f"Channel: {channel_mention}\n"
-                      f"Entries: {entries_count}\n"
+                      f"{entries_text}\n"
                       f"Claimed: {len(giveaway.get('winners_claimed', []))}/{giveaway['winners_count']}\n"
                       f"Ends: <t:{end_time}:R>",
                 inline=False

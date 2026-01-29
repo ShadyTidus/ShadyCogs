@@ -24,10 +24,10 @@ log = logging.getLogger("red.shadycogs.shadygiveaway")
 class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
     """Modal for creating a new giveaway - basic info only."""
 
-    description = discord.ui.TextInput(
-        label="Prize & Description",
+    prize_description = discord.ui.TextInput(
+        label="Prize Name & Description",
         style=discord.TextStyle.paragraph,
-        placeholder="e.g., Win a Discord Nitro subscription! Monthly prize for active members.",
+        placeholder="Line 1: Prize name (e.g., Discord Nitro)\nLine 2+: Optional description",
         required=True,
         max_length=500,
     )
@@ -101,10 +101,21 @@ class GiveawayCreateModal(discord.ui.Modal, title="Create Giveaway"):
                 )
                 return
 
+            # Parse prize name and description (split on first newline)
+            full_text = str(self.prize_description)
+            if "\n" in full_text:
+                prize_name, description = full_text.split("\n", 1)
+                prize_name = prize_name.strip()
+                description = description.strip()
+            else:
+                prize_name = full_text.strip()
+                description = ""
+
             # Store pending giveaway data and show options view
             pending_data = {
                 "channel_id": channel.id,
-                "description": str(self.description),
+                "prize_name": prize_name,
+                "description": description,
                 "duration_seconds": int(duration_delta.total_seconds()),
                 "winners_count": winners,
                 "prize_code": str(self.prize_code),
@@ -415,7 +426,9 @@ class GiveawaySelectView(discord.ui.View):
         options = []
         for giveaway_id, giveaway in giveaways[:25]:  # Discord limit is 25 options
             status = "🎲 Picking" if giveaway.get("picking_winners") else "🟢 Active"
-            desc = giveaway["description"][:50] + "..." if len(giveaway["description"]) > 50 else giveaway["description"]
+            # Use prize_name if available, fall back to description for old giveaways
+            display_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
+            desc = display_name[:50] + "..." if len(display_name) > 50 else display_name
             
             # Count total entries (sum of all entry weights)
             total_entries = sum(giveaway.get("entries", {}).values()) if isinstance(giveaway.get("entries"), dict) else len(giveaway.get("entries", []))
@@ -784,12 +797,14 @@ class ShadyGiveaway(commands.Cog):
                 embed.color = discord.Color.red()
                 embed.title = "🚫 GIVEAWAY CANCELLED"
                 await message.edit(embed=embed, view=None)
-                await channel.send(f"Giveaway **{giveaway['description']}** has been cancelled by {interaction.user.mention}.")
+                prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
+                await channel.send(f"Giveaway **{prize_name}** has been cancelled by {interaction.user.mention}.")
         except Exception as e:
             log.error(f"Error updating cancelled giveaway message: {e}")
         
+        prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
         await interaction.response.send_message(
-            f"Giveaway **{giveaway['description']}** has been cancelled.",
+            f"Giveaway **{prize_name}** has been cancelled.",
             ephemeral=True
         )
 
@@ -819,9 +834,12 @@ class ShadyGiveaway(commands.Cog):
             status = "🟢 Active"
             color = discord.Color.gold()
         
+        prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
+        description = giveaway.get("description", "")
+        
         embed = discord.Embed(
-            title="🎉 Giveaway Information",
-            description=giveaway["description"],
+            title=f"🎉 Giveaway: {prize_name}",
+            description=description if description else None,
             color=color
         )
         
@@ -915,10 +933,14 @@ class ShadyGiveaway(commands.Cog):
             duration = timedelta(seconds=pending_data["duration_seconds"])
             end_time = datetime.now(timezone.utc) + duration
             
+            # Get prize name and description
+            prize_name = pending_data["prize_name"]
+            description = pending_data.get("description", "")
+            
             # Build embed
             embed = discord.Embed(
-                title="🎉 GIVEAWAY",
-                description=pending_data["description"],
+                title=f"🎉 GIVEAWAY: {prize_name}",
+                description=description if description else None,
                 color=discord.Color.gold(),
                 timestamp=datetime.now(timezone.utc)
             )
@@ -964,7 +986,8 @@ class ShadyGiveaway(commands.Cog):
                 giveaways[giveaway_id] = {
                     "message_id": message.id,
                     "channel_id": channel.id,
-                    "description": pending_data["description"],
+                    "prize_name": prize_name,
+                    "description": description,
                     "host_id": interaction.user.id,
                     "winners_count": pending_data["winners_count"],
                     "prize_code": pending_data["prize_code"],
@@ -1145,7 +1168,8 @@ class ShadyGiveaway(commands.Cog):
                 giveaways[giveaway_id]["ended"] = True
             try:
                 if channel:
-                    await channel.send(f"Giveaway for **{giveaway['description']}** ended with no entries! 😢")
+                    prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
+                    await channel.send(f"Giveaway for **{prize_name}** ended with no entries! 😢")
                     message = await channel.fetch_message(giveaway["message_id"])
                     embed = message.embeds[0]
                     embed.color = discord.Color.red()
@@ -1207,9 +1231,11 @@ class ShadyGiveaway(commands.Cog):
         giveaway = giveaways.get(giveaway_id)
         winner_number = len(giveaway["winners_picked"])
         
+        prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
+        
         claim_embed = discord.Embed(
             title="🎉 You Won a Giveaway!",
-            description=f"Congratulations! You won **{giveaway['description']}**!",
+            description=f"Congratulations! You won **{prize_name}**!",
             color=discord.Color.gold()
         )
         
@@ -1243,12 +1269,12 @@ class ShadyGiveaway(commands.Cog):
             await winner.send(embed=claim_embed, view=view)
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
-                await channel.send(f"🎲 {winner.mention} has been selected as a potential winner for **{giveaway['description']}**! Check your DMs to claim.")
+                await channel.send(f"🎲 {winner.mention} has been selected as a potential winner for **{prize_name}**! Check your DMs to claim.")
         except discord.Forbidden:
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
                 await channel.send(
-                    f"{winner.mention} You won **{giveaway['description']}** but I can't DM you! "
+                    f"{winner.mention} You won **{prize_name}** but I can't DM you! "
                     f"Please respond here within {humanize_timedelta(seconds=giveaway['claim_timeout_seconds'])}.",
                     embed=claim_embed,
                     view=view
@@ -1258,13 +1284,14 @@ class ShadyGiveaway(commands.Cog):
         """Handle case when no more eligible entries remain."""
         channel = guild.get_channel(giveaway["channel_id"])
         remaining = giveaway["winners_count"] - claimed_count
+        prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
         
         async with self.config.guild(guild).giveaways() as all_giveaways:
             all_giveaways[giveaway_id]["ended"] = True
         
         if channel:
             await channel.send(
-                f"⚠️ Giveaway **{giveaway['description']}** has ended. "
+                f"⚠️ Giveaway **{prize_name}** has ended. "
                 f"Needed {remaining} more winner(s) but no eligible entries remain. "
                 f"Total winners: {claimed_count}/{giveaway['winners_count']}"
             )
@@ -1314,9 +1341,11 @@ class ShadyGiveaway(commands.Cog):
                     all_giveaways[giveaway_id]["winners_claimed"] = []
                 all_giveaways[giveaway_id]["winners_claimed"].append(winner_id)
             
+            prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
+            
             code_embed = discord.Embed(
                 title="🎁 Your Prize Code",
-                description=f"**Prize:** {giveaway['description']}\n\n**Code/Key:**\n```\n{giveaway['prize_code']}\n```",
+                description=f"**Prize:** {prize_name}\n\n**Code/Key:**\n```\n{giveaway['prize_code']}\n```",
                 color=discord.Color.green()
             )
             code_embed.set_footer(text="Congratulations! Enjoy your prize!")
@@ -1332,10 +1361,10 @@ class ShadyGiveaway(commands.Cog):
                 claimed_count = len(giveaway_updated.get("winners_claimed", []))
                 if giveaway["winners_count"] > 1:
                     await channel.send(
-                        f"🎉 Congratulations {interaction.user.mention} for claiming prize #{claimed_count} of {giveaway['winners_count']} for **{giveaway['description']}**!"
+                        f"🎉 Congratulations {interaction.user.mention} for claiming prize #{claimed_count} of {giveaway['winners_count']} for **{prize_name}**!"
                     )
                 else:
-                    await channel.send(f"🎉 Congratulations {interaction.user.mention} for winning **{giveaway['description']}**!")
+                    await channel.send(f"🎉 Congratulations {interaction.user.mention} for winning **{prize_name}**!")
             
             if claimed_count < giveaway["winners_count"]:
                 await self.pick_and_notify_winner(guild, giveaway_id, giveaway_updated)
@@ -1357,7 +1386,7 @@ class ShadyGiveaway(commands.Cog):
                 
                 final_embed = discord.Embed(
                     title="🏆 Giveaway Winners!",
-                    description=f"**{giveaway['description']}**",
+                    description=f"**{prize_name}**",
                     color=discord.Color.gold()
                 )
                 final_embed.add_field(
@@ -1376,9 +1405,10 @@ class ShadyGiveaway(commands.Cog):
                 ephemeral=True
             )
             
+            prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
             channel = guild.get_channel(giveaway["channel_id"])
             if channel:
-                await channel.send(f"{interaction.user.mention} declined **{giveaway['description']}**. Picking a new winner...")
+                await channel.send(f"{interaction.user.mention} declined **{prize_name}**. Picking a new winner...")
             
             await self.pick_and_notify_winner(guild, giveaway_id, giveaway)
 
@@ -1389,13 +1419,14 @@ class ShadyGiveaway(commands.Cog):
             if giveaway_id in giveaways:
                 giveaway = giveaways[giveaway_id]
                 
+                prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
                 channel = guild.get_channel(giveaway["channel_id"])
                 winner = guild.get_member(winner_id)
                 winner_mention = winner.mention if winner else f"<@{winner_id}>"
                 
                 if channel:
                     await channel.send(
-                        f"⏰ {winner_mention} didn't claim **{giveaway['description']}** in time. Picking a new winner..."
+                        f"⏰ {winner_mention} didn't claim **{prize_name}** in time. Picking a new winner..."
                     )
                 
                 await self.pick_and_notify_winner(guild, giveaway_id, giveaway)
@@ -1425,6 +1456,7 @@ class ShadyGiveaway(commands.Cog):
             channel_mention = channel.mention if channel else "Unknown Channel"
             
             end_time = giveaway["end_timestamp"]
+            prize_name = giveaway.get("prize_name") or giveaway.get("description", "Unknown")
             
             entries = giveaway.get("entries", {})
             if isinstance(entries, dict):
@@ -1440,7 +1472,7 @@ class ShadyGiveaway(commands.Cog):
                 status = "🟢 Active"
             
             embed.add_field(
-                name=f"{giveaway['description']}",
+                name=f"{prize_name}",
                 value=f"Status: {status}\n"
                       f"Channel: {channel_mention}\n"
                       f"{entries_text}\n"

@@ -147,55 +147,45 @@ class GiveawayOptionsView(discord.ui.View):
         self.cog = cog
         self.pending_data = pending_data
         self.guild = guild
-        
+
         # Selected options
         self.min_role_id: Optional[int] = None
         self.nitro_bonus_enabled: bool = False
         self.special_bonus_role_id: Optional[int] = None
-        
-        # Build role options (exclude @everyone and bot roles)
-        self.available_roles = [
-            r for r in sorted(guild.roles, key=lambda x: x.position, reverse=True)
-            if not r.is_bot_managed() and not r.is_default() and not r.is_integration()
-        ]
-        
-        # Add dropdowns
-        self._add_min_role_select()
-        self._add_nitro_toggle_select()
-        self._add_special_bonus_select()
-    
-    def _add_min_role_select(self):
-        """Add minimum role requirement dropdown."""
-        options = [
-            discord.SelectOption(
-                label="No requirement",
-                value="none",
-                description="Anyone can enter",
-                emoji="✅"
-            )
-        ]
-        
-        for role in self.available_roles[:24]:  # Leave room for "No requirement"
-            options.append(
-                discord.SelectOption(
-                    label=role.name[:100],
-                    value=str(role.id),
-                    description=f"Position: {role.position}"
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Minimum Role Required to Enter (optional)",
+        min_values=0,
+        max_values=1,
+        row=0
+    )
+    async def min_role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
+        """Handle minimum role selection."""
+        if select.values:
+            role = select.values[0]
+            # Filter out bot-managed and integration roles
+            if role.is_bot_managed() or role.is_integration() or role.is_default():
+                await interaction.response.send_message(
+                    "You cannot select that role. Please choose a regular role.",
+                    ephemeral=True
                 )
+                return
+            self.min_role_id = role.id
+            await interaction.response.send_message(
+                f"✅ Minimum role set to: **{role.name}**",
+                ephemeral=True
             )
-        
-        select = discord.ui.Select(
-            placeholder="Minimum Role Required to Enter",
-            options=options,
-            custom_id="min_role_select",
-            row=0
-        )
-        select.callback = self._min_role_callback
-        self.add_item(select)
-    
-    def _add_nitro_toggle_select(self):
-        """Add nitro bonus toggle dropdown."""
-        options = [
+        else:
+            self.min_role_id = None
+            await interaction.response.send_message(
+                "✅ Minimum role cleared - anyone can enter",
+                ephemeral=True
+            )
+
+    @discord.ui.select(
+        placeholder="Nitro Bonus (+1 entry)",
+        options=[
             discord.SelectOption(
                 label="Nitro Bonus Disabled",
                 value="disabled",
@@ -208,83 +198,49 @@ class GiveawayOptionsView(discord.ui.View):
                 description="+1 entry for users with Nitro role",
                 emoji="💎"
             )
-        ]
-        
-        select = discord.ui.Select(
-            placeholder="Nitro Bonus (+1 entry)",
-            options=options,
-            custom_id="nitro_toggle_select",
-            row=1
-        )
-        select.callback = self._nitro_toggle_callback
-        self.add_item(select)
-    
-    def _add_special_bonus_select(self):
-        """Add special bonus role dropdown."""
-        options = [
-            discord.SelectOption(
-                label="No Bonus",
-                value="none",
-                description="No special bonus role for this giveaway",
-                emoji="➖"
-            )
-        ]
-        
-        for role in self.available_roles[:24]:  # Leave room for "No Bonus"
-            options.append(
-                discord.SelectOption(
-                    label=role.name[:100],
-                    value=str(role.id),
-                    description=f"+1 entry for users with this role"
-                )
-            )
-        
-        select = discord.ui.Select(
-            placeholder="Special Bonus Role (+1 entry)",
-            options=options,
-            custom_id="special_bonus_select",
-            row=2
-        )
-        select.callback = self._special_bonus_callback
-        self.add_item(select)
-    
-    async def _min_role_callback(self, interaction: discord.Interaction):
-        value = interaction.data["values"][0]
-        self.min_role_id = None if value == "none" else int(value)
-        
-        role_name = "No requirement"
-        if self.min_role_id:
-            role = self.guild.get_role(self.min_role_id)
-            role_name = role.name if role else "Unknown"
-        
-        await interaction.response.send_message(
-            f"✅ Minimum role set to: **{role_name}**",
-            ephemeral=True
-        )
-    
-    async def _nitro_toggle_callback(self, interaction: discord.Interaction):
-        value = interaction.data["values"][0]
+        ],
+        row=1
+    )
+    async def nitro_toggle_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        """Handle nitro bonus toggle."""
+        value = select.values[0]
         self.nitro_bonus_enabled = value == "enabled"
-        
+
         status = "Enabled 💎" if self.nitro_bonus_enabled else "Disabled"
         await interaction.response.send_message(
             f"✅ Nitro bonus: **{status}**",
             ephemeral=True
         )
-    
-    async def _special_bonus_callback(self, interaction: discord.Interaction):
-        value = interaction.data["values"][0]
-        self.special_bonus_role_id = None if value == "none" else int(value)
-        
-        role_name = "No Bonus"
-        if self.special_bonus_role_id:
-            role = self.guild.get_role(self.special_bonus_role_id)
-            role_name = role.name if role else "Unknown"
-        
-        await interaction.response.send_message(
-            f"✅ Special bonus role set to: **{role_name}**",
-            ephemeral=True
-        )
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Special Bonus Role (+1 entry, optional)",
+        min_values=0,
+        max_values=1,
+        row=2
+    )
+    async def special_bonus_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
+        """Handle special bonus role selection."""
+        if select.values:
+            role = select.values[0]
+            # Filter out bot-managed and integration roles
+            if role.is_bot_managed() or role.is_integration() or role.is_default():
+                await interaction.response.send_message(
+                    "You cannot select that role. Please choose a regular role.",
+                    ephemeral=True
+                )
+                return
+            self.special_bonus_role_id = role.id
+            await interaction.response.send_message(
+                f"✅ Special bonus role set to: **{role.name}**",
+                ephemeral=True
+            )
+        else:
+            self.special_bonus_role_id = None
+            await interaction.response.send_message(
+                "✅ Special bonus role cleared - no bonus role for this giveaway",
+                ephemeral=True
+            )
     
     @discord.ui.button(label="Create Giveaway", style=discord.ButtonStyle.green, row=3)
     async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -468,57 +424,47 @@ class NitroRoleSelectView(discord.ui.View):
         super().__init__(timeout=120)
         self.cog = cog
         self.guild = guild
-        
-        # Build role options
-        available_roles = [
-            r for r in sorted(guild.roles, key=lambda x: x.position, reverse=True)
-            if not r.is_bot_managed() and not r.is_default() and not r.is_integration()
-        ]
-        
-        options = [
-            discord.SelectOption(
-                label="Clear Nitro Role",
-                value="none",
-                description="Remove configured Nitro role",
-                emoji="❌"
-            )
-        ]
-        
-        for role in available_roles[:24]:
-            options.append(
-                discord.SelectOption(
-                    label=role.name[:100],
-                    value=str(role.id),
-                    description=f"Set as Nitro bonus role"
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Select the Nitro role for this server...",
+        min_values=0,
+        max_values=1,
+        row=0
+    )
+    async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
+        """Handle role selection."""
+        if select.values:
+            role = select.values[0]
+            # Filter out bot-managed and integration roles
+            if role.is_bot_managed() or role.is_integration() or role.is_default():
+                await interaction.response.send_message(
+                    "You cannot select that role. Please choose a regular role.",
+                    ephemeral=True
                 )
-            )
-        
-        select = discord.ui.Select(
-            placeholder="Select the Nitro role for this server...",
-            options=options
-        )
-        select.callback = self.select_callback
-        self.add_item(select)
-    
-    async def select_callback(self, interaction: discord.Interaction):
-        value = self.children[0].values[0]
-        
-        if value == "none":
-            await self.cog.config.guild(self.guild).nitro_role_id.set(None)
-            await interaction.response.send_message(
-                "✅ Nitro role has been cleared. Nitro bonus will not work until a role is set.",
-                ephemeral=True
-            )
-        else:
-            role_id = int(value)
-            role = self.guild.get_role(role_id)
-            await self.cog.config.guild(self.guild).nitro_role_id.set(role_id)
+                return
+            await self.cog.config.guild(self.guild).nitro_role_id.set(role.id)
             await interaction.response.send_message(
                 f"✅ Nitro role set to: **{role.name}**\n\n"
                 f"Users with this role will get +1 entry when Nitro bonus is enabled for a giveaway.",
                 ephemeral=True
             )
-        
+        else:
+            await self.cog.config.guild(self.guild).nitro_role_id.set(None)
+            await interaction.response.send_message(
+                "✅ Nitro role has been cleared. Nitro bonus will not work until a role is set.",
+                ephemeral=True
+            )
+        self.stop()
+
+    @discord.ui.button(label="Clear Nitro Role", style=discord.ButtonStyle.red, row=1)
+    async def clear_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Clear the configured Nitro role."""
+        await self.cog.config.guild(self.guild).nitro_role_id.set(None)
+        await interaction.response.send_message(
+            "✅ Nitro role has been cleared. Nitro bonus will not work until a role is set.",
+            ephemeral=True
+        )
         self.stop()
 
 

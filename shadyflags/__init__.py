@@ -1,0 +1,1 @@
+from .shadyflags import setup

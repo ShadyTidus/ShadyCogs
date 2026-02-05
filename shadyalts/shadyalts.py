@@ -1,7 +1,7 @@
 """
 ShadyAlts - Alt account tracking for moderation
-Features bidirectional alt linking, join/leave notifications for known alts,
-and slash commands with modal forms.
+Slash commands only, following ShadyFlags/ShadyGiveaway pattern.
+Features bidirectional alt linking, join/leave notifications for known alts.
 """
 
 import discord
@@ -83,20 +83,20 @@ class MarkAltModal(discord.ui.Modal, title="Mark Users as Alts"):
         try:
             u1 = await self.cog.bot.fetch_user(uid1)
             u1_display = f"{u1.name} ({uid1})"
-        except:
+        except Exception:
             u1_display = f"User ID: {uid1}"
 
         try:
             u2 = await self.cog.bot.fetch_user(uid2)
             u2_display = f"{u2.name} ({uid2})"
-        except:
+        except Exception:
             u2_display = f"User ID: {uid2}"
 
         # Get full network
         alts = await self.cog.get_alts(interaction.guild.id, uid1)
 
         embed = discord.Embed(
-            title="Alts Linked",
+            title="✅ Alts Linked",
             description=f"Linked {u1_display} ↔ {u2_display}",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc)
@@ -113,7 +113,7 @@ class MarkAltModal(discord.ui.Modal, title="Mark Users as Alts"):
                 try:
                     u = await self.cog.bot.fetch_user(alt["alt_id"])
                     network_list.append(f"• {u.name} ({alt['alt_id']})")
-                except:
+                except Exception:
                     network_list.append(f"• User ID: {alt['alt_id']}")
 
             if len(alts) > 10:
@@ -130,6 +130,143 @@ class MarkAltModal(discord.ui.Modal, title="Mark Users as Alts"):
             f"**Users:** <@{uid1}> ↔ <@{uid2}>\n"
             f"**Network Size:** {len(alts) + 1} accounts"
         )
+
+
+class MarkAltMemberModal(discord.ui.Modal, title="Mark as Alt"):
+    """Modal for adding alt link with reason when using member select."""
+
+    reason = discord.ui.TextInput(
+        label="Reason (optional)",
+        placeholder="Why are these accounts linked?",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=500
+    )
+
+    def __init__(self, cog: "ShadyAlts", member1: discord.Member, member2: discord.Member):
+        super().__init__()
+        self.cog = cog
+        self.member1 = member1
+        self.member2 = member2
+
+    async def on_submit(self, interaction: discord.Interaction):
+        reason = self.reason.value if self.reason.value else None
+
+        await self.cog.add_alt(interaction.guild.id, self.member1.id, self.member2.id, reason)
+
+        alts = await self.cog.get_alts(interaction.guild.id, self.member1.id)
+
+        embed = discord.Embed(
+            title="✅ Alts Linked",
+            description=f"Linked {self.member1.mention} ↔ {self.member2.mention}",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Network Size", value=f"{len(alts) + 1} accounts", inline=True)
+        embed.add_field(name="Marked By", value=interaction.user.mention, inline=True)
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        await self.cog.log_to_mod_channel(
+            interaction.guild,
+            f"🔗 **Alts Linked** by {interaction.user.mention}\n"
+            f"**Users:** {self.member1.mention} ↔ {self.member2.mention}"
+        )
+
+
+class UnmarkAltIdModal(discord.ui.Modal, title="Unmark Alt by IDs"):
+    """Modal for unlinking alt accounts by user ID."""
+
+    user1_id = discord.ui.TextInput(
+        label="First User ID",
+        placeholder="Enter first user's Discord ID...",
+        required=True,
+        max_length=20
+    )
+
+    user2_id = discord.ui.TextInput(
+        label="Second User ID",
+        placeholder="Enter second user's Discord ID...",
+        required=True,
+        max_length=20
+    )
+
+    def __init__(self, cog: "ShadyAlts"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            uid1 = int(self.user1_id.value)
+            uid2 = int(self.user2_id.value)
+        except ValueError:
+            await interaction.response.send_message(
+                "Invalid user IDs. Please provide numeric Discord user IDs.",
+                ephemeral=True
+            )
+            return
+
+        if not await self.cog.is_alt(interaction.guild.id, uid1, uid2):
+            await interaction.response.send_message(
+                "These accounts are not linked as alts.",
+                ephemeral=True
+            )
+            return
+
+        await self.cog.remove_alt(interaction.guild.id, uid1, uid2)
+
+        try:
+            u1 = await self.cog.bot.fetch_user(uid1)
+            u1_display = f"{u1.name} ({uid1})"
+        except Exception:
+            u1_display = f"User ID: {uid1}"
+
+        try:
+            u2 = await self.cog.bot.fetch_user(uid2)
+            u2_display = f"{u2.name} ({uid2})"
+        except Exception:
+            u2_display = f"User ID: {uid2}"
+
+        embed = discord.Embed(
+            title="✅ Alts Unlinked",
+            description=f"Removed alt link between {u1_display} ↔ {u2_display}",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        await self.cog.log_to_mod_channel(
+            interaction.guild,
+            f"🔓 **Alts Unlinked** by {interaction.user.mention}\n"
+            f"**Users:** <@{uid1}> ↔ <@{uid2}>"
+        )
+
+
+class ChannelSelectView(discord.ui.View):
+    """View for selecting mod log channel."""
+
+    def __init__(self, cog: "ShadyAlts"):
+        super().__init__(timeout=120)
+        self.cog = cog
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select channel...",
+        min_values=0,
+        max_values=1
+    )
+    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        if select.values:
+            channel = select.values[0]
+            await self.cog.config.guild(interaction.guild).mod_log_channel.set(channel.id)
+            await interaction.response.send_message(f"✅ Mod log channel set to {channel.mention}", ephemeral=True)
+        else:
+            await self.cog.config.guild(interaction.guild).mod_log_channel.set(None)
+            await interaction.response.send_message("✅ Mod log channel cleared.", ephemeral=True)
+        self.stop()
 
 
 class ShadyAlts(commands.Cog):
@@ -174,7 +311,6 @@ class ShadyAlts(commands.Cog):
     async def add_alt(self, guild_id: int, user_id: int, alt_id: int, reason: str = None):
         """Add alt relationship (bidirectional)."""
         async with self.config.guild_from_id(guild_id).alts() as alts:
-            # Add both directions
             entry1 = {
                 "user_id": user_id,
                 "alt_id": alt_id,
@@ -188,7 +324,6 @@ class ShadyAlts(commands.Cog):
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
 
-            # Only add if not exists
             exists1 = any(a["user_id"] == user_id and a["alt_id"] == alt_id for a in alts)
             exists2 = any(a["user_id"] == alt_id and a["alt_id"] == user_id for a in alts)
 
@@ -224,10 +359,13 @@ class ShadyAlts(commands.Cog):
 
         channel = guild.get_channel(channel_id)
         if channel:
-            if embed:
-                await channel.send(embed=embed)
-            elif message:
-                await channel.send(message)
+            try:
+                if embed:
+                    await channel.send(embed=embed)
+                elif message:
+                    await channel.send(message)
+            except discord.Forbidden:
+                log.warning(f"Cannot send to mod log channel in {guild.name}")
 
     # ===== EVENTS =====
 
@@ -281,270 +419,307 @@ class ShadyAlts(commands.Cog):
             )
             await self.log_to_mod_channel(member.guild, embed=embed)
 
-    # ===== HELPER FOR EPHEMERAL-LIKE PREFIX COMMANDS =====
-
-    async def _send_ephemeral(self, ctx: commands.Context, content: str = None, embed: discord.Embed = None, delete_after: int = 15):
-        """Send a response that auto-deletes, mimicking ephemeral behavior."""
-        try:
-            await ctx.message.delete()
-        except (discord.Forbidden, discord.NotFound):
-            pass
-
-        return await ctx.send(content=content, embed=embed, delete_after=delete_after)
-
-    # ===== PREFIX COMMANDS =====
-
-    @commands.group(name="alt", aliases=["alts"], invoke_without_command=True)
-    @commands.mod_or_permissions(administrator=True)
-    async def alt_group(self, ctx: commands.Context, member: discord.Member):
-        """View alt accounts for a member."""
-        alts = await self.get_alts(ctx.guild.id, member.id)
-
-        if not alts:
-            embed = discord.Embed(
-                title="ℹ️ No Alts Found",
-                description=f"{member.mention} has no known alt accounts.",
-                color=discord.Color.blue()
-            )
-            await self._send_ephemeral(ctx, embed=embed)
-            return
-
-        embed = discord.Embed(
-            title=f"🔍 Alt Accounts for {member.display_name}",
-            color=discord.Color.blurple(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-
-        alts_text = ""
-        for alt in alts:
-            alts_text += f"• <@{alt['alt_id']}> (`{alt['alt_id']}`)\n"
-            if alt.get("reason"):
-                alts_text += f"  └─ _{alt['reason']}_\n"
-
-        embed.add_field(name=f"Known Alts ({len(alts)})", value=alts_text, inline=False)
-        await self._send_ephemeral(ctx, embed=embed)
-
-    @alt_group.command(name="mark", aliases=["add", "link"])
-    @commands.mod_or_permissions(administrator=True)
-    async def alt_mark(self, ctx: commands.Context, member1: discord.Member, member2: discord.Member, *, reason: str = None):
-        """Mark two accounts as alts."""
-        if member1.id == member2.id:
-            await self._send_ephemeral(ctx, "Cannot mark a user as their own alt.")
-            return
-
-        if await self.is_alt(ctx.guild.id, member1.id, member2.id):
-            await self._send_ephemeral(ctx, f"{member2.mention} is already marked as an alt of {member1.mention}")
-            return
-
-        await self.add_alt(ctx.guild.id, member1.id, member2.id, reason)
-
-        embed = discord.Embed(
-            title="✅ Alts Linked",
-            description=f"{member2.mention} is now marked as an alt of {member1.mention}",
-            color=discord.Color.green()
-        )
-        if reason:
-            embed.add_field(name="Reason", value=reason)
-
-        await self._send_ephemeral(ctx, embed=embed)
-
-        await self.log_to_mod_channel(
-            ctx.guild,
-            f"🔗 **Alt Linked** by {ctx.author.mention}\n{member1.mention} ↔️ {member2.mention}"
-        )
-
-    @alt_group.command(name="unmark", aliases=["remove", "unlink"])
-    @commands.mod_or_permissions(administrator=True)
-    async def alt_unmark(self, ctx: commands.Context, member1: discord.Member, member2: discord.Member):
-        """Unmark alt relationship."""
-        if not await self.is_alt(ctx.guild.id, member1.id, member2.id):
-            await self._send_ephemeral(ctx, "These accounts are not marked as alts.")
-            return
-
-        await self.remove_alt(ctx.guild.id, member1.id, member2.id)
-
-        embed = discord.Embed(
-            title="✅ Alts Unlinked",
-            description=f"Removed alt relationship between {member1.mention} and {member2.mention}",
-            color=discord.Color.green()
-        )
-        await self._send_ephemeral(ctx, embed=embed)
-
     # ===== SLASH COMMANDS =====
 
-    @app_commands.command(name="markalt", description="Mark users as alts (link their accounts)")
-    async def slash_mark_alt(self, interaction: discord.Interaction):
-        """Mark two users as alts of each other - Opens a form."""
+    @app_commands.command(name="alt", description="Manage alt accounts for server members")
+    @app_commands.describe(
+        action="Action to perform",
+        member1="Primary user",
+        member2="Alt account (required for mark/unmark)"
+    )
+    @app_commands.choices(action=[
+        app_commands.Choice(name="Mark as Alts", value="mark"),
+        app_commands.Choice(name="Unmark Alts", value="unmark"),
+        app_commands.Choice(name="View Alts", value="view"),
+    ])
+    async def alt_cmd(
+        self,
+        interaction: discord.Interaction,
+        action: str,
+        member1: discord.Member,
+        member2: Optional[discord.Member] = None
+    ):
+        """Alt management for server members."""
         if not await self.is_authorized(interaction):
             await interaction.response.send_message(
-                "You don't have permission to use this command.",
-                ephemeral=True
+                "You don't have permission to use this command.", ephemeral=True
             )
             return
 
-        modal = MarkAltModal(self)
-        await interaction.response.send_modal(modal)
+        if action == "mark":
+            if not member2:
+                await interaction.response.send_message(
+                    "You must specify both `member1` and `member2` to mark alts.",
+                    ephemeral=True
+                )
+                return
 
-    @app_commands.command(name="viewalts", description="View alt network for a user")
-    @app_commands.describe(user="User to check (or enter user ID)")
-    async def slash_view_alts(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
-        """View all alts for a user."""
-        if not await self.is_authorized(interaction):
-            await interaction.response.send_message(
-                "You don't have permission to use this command.",
-                ephemeral=True
-            )
-            return
+            if member1.id == member2.id:
+                await interaction.response.send_message(
+                    "Cannot mark a user as their own alt.", ephemeral=True
+                )
+                return
 
-        if not user:
-            await interaction.response.send_message(
-                "Please specify a user to check.",
-                ephemeral=True
-            )
-            return
+            if await self.is_alt(interaction.guild.id, member1.id, member2.id):
+                await interaction.response.send_message(
+                    f"{member2.mention} is already marked as an alt of {member1.mention}",
+                    ephemeral=True
+                )
+                return
 
-        alts = await self.get_alts(interaction.guild.id, user.id)
+            modal = MarkAltMemberModal(self, member1, member2)
+            await interaction.response.send_modal(modal)
 
-        if not alts:
+        elif action == "unmark":
+            if not member2:
+                await interaction.response.send_message(
+                    "You must specify both `member1` and `member2` to unmark alts.",
+                    ephemeral=True
+                )
+                return
+
+            if not await self.is_alt(interaction.guild.id, member1.id, member2.id):
+                await interaction.response.send_message(
+                    "These accounts are not marked as alts.",
+                    ephemeral=True
+                )
+                return
+
+            await self.remove_alt(interaction.guild.id, member1.id, member2.id)
+
             embed = discord.Embed(
-                title="ℹ️ No Alts",
-                description=f"No known alts for {user.mention}",
-                color=discord.Color.blue()
+                title="✅ Alts Unlinked",
+                description=f"Removed alt link between {member1.mention} and {member2.mention}",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc)
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
 
-        embed = discord.Embed(
-            title=f"🔗 Alt Network for {user.display_name}",
-            color=discord.Color.blurple(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.add_field(name="Primary Account", value=f"{user.mention} ({user.id})", inline=False)
-        embed.add_field(name="Network Size", value=f"{len(alts) + 1} accounts", inline=False)
+            await self.log_to_mod_channel(
+                interaction.guild,
+                f"🔓 **Alts Unlinked** by {interaction.user.mention}\n"
+                f"**Users:** {member1.mention} ↔ {member2.mention}"
+            )
 
-        alt_list = []
-        for alt in alts[:20]:
-            try:
-                u = await self.bot.fetch_user(alt["alt_id"])
-                alt_list.append(f"• <@{alt['alt_id']}> - {u.name} ({alt['alt_id']})")
-            except:
-                alt_list.append(f"• <@{alt['alt_id']}> ({alt['alt_id']})")
+        elif action == "view":
+            alts = await self.get_alts(interaction.guild.id, member1.id)
 
-        if len(alts) > 20:
-            alt_list.append(f"... and {len(alts) - 20} more")
+            if not alts:
+                embed = discord.Embed(
+                    title="ℹ️ No Alts",
+                    description=f"No known alts for {member1.mention}",
+                    color=discord.Color.blue()
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
 
-        embed.add_field(name="Linked Accounts", value="\n".join(alt_list), inline=False)
+            embed = discord.Embed(
+                title=f"🔗 Alt Network for {member1.display_name}",
+                color=discord.Color.blurple(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_thumbnail(url=member1.display_avatar.url)
+            embed.add_field(
+                name="Primary Account",
+                value=f"{member1.mention} ({member1.id})",
+                inline=False
+            )
+            embed.add_field(
+                name="Network Size",
+                value=f"{len(alts) + 1} accounts",
+                inline=False
+            )
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            alt_list = []
+            for alt in alts[:20]:
+                try:
+                    u = await self.bot.fetch_user(alt["alt_id"])
+                    alt_list.append(f"• <@{alt['alt_id']}> - {u.name} ({alt['alt_id']})")
+                except Exception:
+                    alt_list.append(f"• <@{alt['alt_id']}> ({alt['alt_id']})")
 
-    @app_commands.command(name="viewaltsid", description="View alt network for a user by ID (for users not in server)")
-    @app_commands.describe(user_id="Discord User ID")
-    async def slash_view_alts_id(self, interaction: discord.Interaction, user_id: str):
-        """View all alts for a user by their ID."""
+            if len(alts) > 20:
+                alt_list.append(f"... and {len(alts) - 20} more")
+
+            embed.add_field(
+                name="Linked Accounts",
+                value="\n".join(alt_list),
+                inline=False
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="altid",
+        description="Manage alt accounts by user ID (for users not in server)"
+    )
+    @app_commands.describe(action="Action to perform", user_id="Discord User ID")
+    @app_commands.choices(action=[
+        app_commands.Choice(name="Mark as Alts (opens form)", value="mark"),
+        app_commands.Choice(name="Unmark Alts (opens form)", value="unmark"),
+        app_commands.Choice(name="View Alts", value="view"),
+    ])
+    async def altid_cmd(
+        self,
+        interaction: discord.Interaction,
+        action: str,
+        user_id: str = None
+    ):
+        """Alt management by user ID."""
         if not await self.is_authorized(interaction):
             await interaction.response.send_message(
-                "You don't have permission to use this command.",
-                ephemeral=True
+                "You don't have permission to use this command.", ephemeral=True
             )
             return
 
-        try:
-            uid = int(user_id)
-        except ValueError:
-            await interaction.response.send_message(
-                "Invalid user ID. Please provide a numeric Discord user ID.",
-                ephemeral=True
-            )
-            return
+        if action == "mark":
+            modal = MarkAltModal(self)
+            if user_id:
+                modal.user1_id.default = user_id
+            await interaction.response.send_modal(modal)
 
-        alts = await self.get_alts(interaction.guild.id, uid)
+        elif action == "unmark":
+            modal = UnmarkAltIdModal(self)
+            if user_id:
+                modal.user1_id.default = user_id
+            await interaction.response.send_modal(modal)
 
-        # Get user info
-        try:
-            user = await self.bot.fetch_user(uid)
-            user_display = f"{user.name}"
-        except:
-            user_display = f"User ID: {uid}"
+        elif action == "view":
+            if not user_id:
+                await interaction.response.send_message(
+                    "You must provide a user ID to view alts.", ephemeral=True
+                )
+                return
 
-        if not alts:
-            embed = discord.Embed(
-                title="ℹ️ No Alts",
-                description=f"No known alts for {user_display}",
-                color=discord.Color.blue()
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        embed = discord.Embed(
-            title=f"🔗 Alt Network for {user_display}",
-            color=discord.Color.blurple(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.add_field(name="Primary Account", value=f"<@{uid}> ({uid})", inline=False)
-        embed.add_field(name="Network Size", value=f"{len(alts) + 1} accounts", inline=False)
-
-        alt_list = []
-        for alt in alts[:20]:
             try:
-                u = await self.bot.fetch_user(alt["alt_id"])
-                alt_list.append(f"• <@{alt['alt_id']}> - {u.name} ({alt['alt_id']})")
-            except:
-                alt_list.append(f"• <@{alt['alt_id']}> ({alt['alt_id']})")
+                uid = int(user_id)
+            except ValueError:
+                await interaction.response.send_message(
+                    "Invalid user ID.", ephemeral=True
+                )
+                return
 
-        if len(alts) > 20:
-            alt_list.append(f"... and {len(alts) - 20} more")
+            try:
+                user = await self.bot.fetch_user(uid)
+                user_display = f"{user.name}"
+            except Exception:
+                user_display = f"User {uid}"
 
-        embed.add_field(name="Linked Accounts", value="\n".join(alt_list), inline=False)
+            alts = await self.get_alts(interaction.guild.id, uid)
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            if not alts:
+                embed = discord.Embed(
+                    title="ℹ️ No Alts",
+                    description=f"No known alts for {user_display}",
+                    color=discord.Color.blue()
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title=f"🔗 Alt Network for {user_display}",
+                color=discord.Color.blurple(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.add_field(
+                name="Primary Account",
+                value=f"<@{uid}> ({uid})",
+                inline=False
+            )
+            embed.add_field(
+                name="Network Size",
+                value=f"{len(alts) + 1} accounts",
+                inline=False
+            )
+
+            alt_list = []
+            for alt in alts[:20]:
+                try:
+                    u = await self.bot.fetch_user(alt["alt_id"])
+                    alt_list.append(f"• <@{alt['alt_id']}> - {u.name} ({alt['alt_id']})")
+                except Exception:
+                    alt_list.append(f"• <@{alt['alt_id']}> ({alt['alt_id']})")
+
+            if len(alts) > 20:
+                alt_list.append(f"... and {len(alts) - 20} more")
+
+            embed.add_field(
+                name="Linked Accounts",
+                value="\n".join(alt_list),
+                inline=False
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ===== SETTINGS =====
 
-    @commands.group(name="altset")
-    @commands.admin_or_permissions(administrator=True)
-    async def altset_group(self, ctx: commands.Context):
-        """Configure ShadyAlts settings."""
-        if ctx.invoked_subcommand is None:
-            settings = {
-                "mod_log_channel": await self.config.guild(ctx.guild).mod_log_channel(),
-                "notify_on_join": await self.config.guild(ctx.guild).notify_on_join(),
-                "notify_on_leave": await self.config.guild(ctx.guild).notify_on_leave(),
-            }
+    @app_commands.command(name="altset", description="Configure alt tracking settings")
+    @app_commands.describe(setting="Setting to configure")
+    @app_commands.choices(setting=[
+        app_commands.Choice(name="View Settings", value="view"),
+        app_commands.Choice(name="Set Log Channel", value="channel"),
+        app_commands.Choice(name="Toggle Join Notifications", value="joinnotify"),
+        app_commands.Choice(name="Toggle Leave Notifications", value="leavenotify"),
+    ])
+    async def altset_cmd(self, interaction: discord.Interaction, setting: str):
+        """Configure alt tracking settings."""
+        if not await self.is_authorized(interaction):
+            await interaction.response.send_message(
+                "You don't have permission to use this command.", ephemeral=True
+            )
+            return
 
-            channel = ctx.guild.get_channel(settings["mod_log_channel"]) if settings["mod_log_channel"] else None
+        if setting == "view":
+            settings = await self.config.guild(interaction.guild).all()
+            channel = (
+                interaction.guild.get_channel(settings["mod_log_channel"])
+                if settings["mod_log_channel"]
+                else None
+            )
 
             embed = discord.Embed(
                 title="ShadyAlts Settings",
                 color=discord.Color.blurple()
             )
-            embed.add_field(name="Mod Log Channel", value=channel.mention if channel else "Not set", inline=False)
-            embed.add_field(name="Notify on Join", value="Yes" if settings["notify_on_join"] else "No", inline=True)
-            embed.add_field(name="Notify on Leave", value="Yes" if settings["notify_on_leave"] else "No", inline=True)
+            embed.add_field(
+                name="Mod Log Channel",
+                value=channel.mention if channel else "Not set",
+                inline=False
+            )
+            embed.add_field(
+                name="Notify on Join",
+                value="Yes" if settings["notify_on_join"] else "No",
+                inline=True
+            )
+            embed.add_field(
+                name="Notify on Leave",
+                value="Yes" if settings["notify_on_leave"] else "No",
+                inline=True
+            )
 
-            await self._send_ephemeral(ctx, embed=embed)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @altset_group.command(name="channel")
-    async def altset_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
-        """Set the mod log channel for alt notifications."""
-        if channel:
-            await self.config.guild(ctx.guild).mod_log_channel.set(channel.id)
-            await self._send_ephemeral(ctx, f"Mod log channel set to {channel.mention}")
-        else:
-            await self.config.guild(ctx.guild).mod_log_channel.set(None)
-            await self._send_ephemeral(ctx, "Mod log channel cleared.")
+        elif setting == "channel":
+            view = ChannelSelectView(self)
+            await interaction.response.send_message(
+                "Select the mod log channel:", view=view, ephemeral=True
+            )
 
-    @altset_group.command(name="joinnotify")
-    async def altset_join_notify(self, ctx: commands.Context, enabled: bool):
-        """Enable/disable notifications when known alts join."""
-        await self.config.guild(ctx.guild).notify_on_join.set(enabled)
-        await self._send_ephemeral(ctx, f"Join notifications {'enabled' if enabled else 'disabled'}.")
+        elif setting == "joinnotify":
+            current = await self.config.guild(interaction.guild).notify_on_join()
+            await self.config.guild(interaction.guild).notify_on_join.set(not current)
+            status = "enabled" if not current else "disabled"
+            await interaction.response.send_message(
+                f"✅ Join notifications {status}.", ephemeral=True
+            )
 
-    @altset_group.command(name="leavenotify")
-    async def altset_leave_notify(self, ctx: commands.Context, enabled: bool):
-        """Enable/disable notifications when known alts leave."""
-        await self.config.guild(ctx.guild).notify_on_leave.set(enabled)
-        await self._send_ephemeral(ctx, f"Leave notifications {'enabled' if enabled else 'disabled'}.")
+        elif setting == "leavenotify":
+            current = await self.config.guild(interaction.guild).notify_on_leave()
+            await self.config.guild(interaction.guild).notify_on_leave.set(not current)
+            status = "enabled" if not current else "disabled"
+            await interaction.response.send_message(
+                f"✅ Leave notifications {status}.", ephemeral=True
+            )
 
 
 async def setup(bot: Red):

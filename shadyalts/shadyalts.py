@@ -5,8 +5,10 @@ and slash commands with modal forms.
 """
 
 import discord
+import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, List
 
 from redbot.core import commands, Config
@@ -145,14 +147,25 @@ class ShadyAlts(commands.Cog):
         }
         self.config.register_guild(**default_guild)
 
-    async def is_authorized(self, member: discord.Member) -> bool:
+    async def is_authorized(self, interaction: discord.Interaction) -> bool:
         """Check if user has permission to manage alts."""
-        if member.guild_permissions.administrator or member == member.guild.owner:
+        if not isinstance(interaction.user, discord.Member):
+            return False
+
+        if interaction.user.guild_permissions.administrator or interaction.user == interaction.guild.owner:
             return True
 
-        # Check mod/admin roles
-        if await self.bot.is_mod(member) or await self.bot.is_admin(member):
-            return True
+        try:
+            cogs_dir = Path(__file__).parent.parent
+            roles_file = cogs_dir / "wiki" / "config" / "roles.json"
+
+            if roles_file.exists():
+                with open(roles_file, "r", encoding="utf-8") as f:
+                    roles_data = json.load(f)
+                    allowed_roles = roles_data.get("authorized_roles", [])
+                    return any(role.name in allowed_roles for role in interaction.user.roles)
+        except Exception as e:
+            log.error(f"Error reading roles.json: {e}")
 
         return False
 
@@ -363,7 +376,7 @@ class ShadyAlts(commands.Cog):
     @app_commands.command(name="markalt", description="Mark users as alts (link their accounts)")
     async def slash_mark_alt(self, interaction: discord.Interaction):
         """Mark two users as alts of each other - Opens a form."""
-        if not await self.is_authorized(interaction.user):
+        if not await self.is_authorized(interaction):
             await interaction.response.send_message(
                 "You don't have permission to use this command.",
                 ephemeral=True
@@ -377,7 +390,7 @@ class ShadyAlts(commands.Cog):
     @app_commands.describe(user="User to check (or enter user ID)")
     async def slash_view_alts(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
         """View all alts for a user."""
-        if not await self.is_authorized(interaction.user):
+        if not await self.is_authorized(interaction):
             await interaction.response.send_message(
                 "You don't have permission to use this command.",
                 ephemeral=True
@@ -429,7 +442,7 @@ class ShadyAlts(commands.Cog):
     @app_commands.describe(user_id="Discord User ID")
     async def slash_view_alts_id(self, interaction: discord.Interaction, user_id: str):
         """View all alts for a user by their ID."""
-        if not await self.is_authorized(interaction.user):
+        if not await self.is_authorized(interaction):
             await interaction.response.send_message(
                 "You don't have permission to use this command.",
                 ephemeral=True

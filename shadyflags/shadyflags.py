@@ -5,8 +5,10 @@ and mod notifications for suspicious joins.
 """
 
 import discord
+import json
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional, List
 
 from redbot.core import commands, Config
@@ -125,13 +127,25 @@ class ShadyFlags(commands.Cog):
         }
         self.config.register_guild(**default_guild)
 
-    async def is_authorized(self, member: discord.Member) -> bool:
+    async def is_authorized(self, interaction: discord.Interaction) -> bool:
         """Check if user has permission to manage flags."""
-        if member.guild_permissions.administrator or member == member.guild.owner:
+        if not isinstance(interaction.user, discord.Member):
+            return False
+
+        if interaction.user.guild_permissions.administrator or interaction.user == interaction.guild.owner:
             return True
 
-        if await self.bot.is_mod(member) or await self.bot.is_admin(member):
-            return True
+        try:
+            cogs_dir = Path(__file__).parent.parent
+            roles_file = cogs_dir / "wiki" / "config" / "roles.json"
+
+            if roles_file.exists():
+                with open(roles_file, "r", encoding="utf-8") as f:
+                    roles_data = json.load(f)
+                    allowed_roles = roles_data.get("authorized_roles", [])
+                    return any(role.name in allowed_roles for role in interaction.user.roles)
+        except Exception as e:
+            log.error(f"Error reading roles.json: {e}")
 
         return False
 
@@ -478,7 +492,7 @@ class ShadyFlags(commands.Cog):
     @app_commands.command(name="addflag", description="Add a flag to a user by ID")
     async def slash_add_flag(self, interaction: discord.Interaction):
         """Add a flag to a user by their ID - Opens a form."""
-        if not await self.is_authorized(interaction.user):
+        if not await self.is_authorized(interaction):
             await interaction.response.send_message(
                 "You don't have permission to use this command.",
                 ephemeral=True
@@ -492,7 +506,7 @@ class ShadyFlags(commands.Cog):
     @app_commands.describe(user="User to check")
     async def slash_view_flags(self, interaction: discord.Interaction, user: discord.Member):
         """View flags for a user."""
-        if not await self.is_authorized(interaction.user):
+        if not await self.is_authorized(interaction):
             await interaction.response.send_message(
                 "You don't have permission to use this command.",
                 ephemeral=True
@@ -542,7 +556,7 @@ class ShadyFlags(commands.Cog):
     @app_commands.describe(flag_id="The Flag ID to remove")
     async def slash_remove_flag(self, interaction: discord.Interaction, flag_id: int):
         """Remove a specific flag by ID."""
-        if not await self.is_authorized(interaction.user):
+        if not await self.is_authorized(interaction):
             await interaction.response.send_message(
                 "You don't have permission to use this command.",
                 ephemeral=True

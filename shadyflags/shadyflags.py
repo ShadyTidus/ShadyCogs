@@ -552,6 +552,117 @@ class ShadyFlags(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="viewflagsid", description="View flags for a user by ID (for users not in server)")
+    @app_commands.describe(user_id="Discord User ID")
+    async def slash_view_flags_id(self, interaction: discord.Interaction, user_id: str):
+        """View flags for a user by their ID."""
+        if not await self.is_authorized(interaction):
+            await interaction.response.send_message(
+                "You don't have permission to use this command.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            uid = int(user_id)
+        except ValueError:
+            await interaction.response.send_message(
+                "Invalid user ID. Please provide a numeric Discord user ID.",
+                ephemeral=True
+            )
+            return
+
+        flags = await self.get_flags(interaction.guild.id, uid)
+
+        # Get user info
+        try:
+            user = await self.bot.fetch_user(uid)
+            user_display = user.name
+        except:
+            user_display = f"User ID: {uid}"
+
+        if not flags:
+            embed = discord.Embed(
+                title="ℹ️ No Flags",
+                description=f"No active flags for {user_display}",
+                color=discord.Color.blue()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"🚩 Flags for {user_display}",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="User ID", value=str(uid), inline=False)
+
+        for flag in flags:
+            created = datetime.fromisoformat(flag["created_at"])
+            expires = datetime.fromisoformat(flag["expires_at"])
+            days_left = (expires - datetime.now(timezone.utc)).days
+
+            priority_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "manual": "🚩"}.get(flag["priority"], "🚩")
+
+            value = f"**Reason:** {flag['reason']}\n"
+            value += f"**Created:** <t:{int(created.timestamp())}:R>\n"
+            value += f"**Expires:** <t:{int(expires.timestamp())}:R> ({days_left} days left)\n"
+            value += f"**By:** <@{flag['moderator_id']}>"
+
+            embed.add_field(
+                name=f"{priority_emoji} Flag #{flag['id']} ({flag['priority'].upper()})",
+                value=value,
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="clearflagsid", description="Clear all flags for a user by ID")
+    @app_commands.describe(user_id="Discord User ID")
+    async def slash_clear_flags_id(self, interaction: discord.Interaction, user_id: str):
+        """Clear all flags for a user by their ID."""
+        if not await self.is_authorized(interaction):
+            await interaction.response.send_message(
+                "You don't have permission to use this command.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            uid = int(user_id)
+        except ValueError:
+            await interaction.response.send_message(
+                "Invalid user ID. Please provide a numeric Discord user ID.",
+                ephemeral=True
+            )
+            return
+
+        # Check if user has any flags first
+        flags = await self.get_flags(interaction.guild.id, uid)
+        if not flags:
+            await interaction.response.send_message(
+                f"No active flags found for user ID {uid}.",
+                ephemeral=True
+            )
+            return
+
+        flag_count = len(flags)
+        await self.clear_flags(interaction.guild.id, uid)
+
+        embed = discord.Embed(
+            title="✅ Flags Cleared",
+            description=f"Removed {flag_count} flag(s) from <@{uid}>",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        await self.log_to_mod_channel(
+            interaction.guild,
+            f"🗑️ **Flags Cleared** by {interaction.user.mention}\n"
+            f"**User:** <@{uid}> ({uid})\n"
+            f"**Flags Removed:** {flag_count}"
+        )
+
     @app_commands.command(name="remflag", description="Remove a specific flag by ID")
     @app_commands.describe(flag_id="The Flag ID to remove")
     async def slash_remove_flag(self, interaction: discord.Interaction, flag_id: int):

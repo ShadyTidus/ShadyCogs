@@ -294,13 +294,18 @@ class ShadyFlags(commands.Cog):
     # ===== SLASH COMMANDS =====
 
     @app_commands.command(name="flag", description="Manage flags for server members")
-    @app_commands.describe(action="Action to perform", user="User to flag/view/clear")
+    @app_commands.describe(
+        action="Action to perform",
+        user="User to flag/view/clear",
+        flag_id="Flag ID number (required for Remove Flag)"
+    )
     @app_commands.choices(action=[
         app_commands.Choice(name="Add Flag", value="add"),
         app_commands.Choice(name="View Flags", value="view"),
+        app_commands.Choice(name="Remove Flag", value="remove"),
         app_commands.Choice(name="Clear All Flags", value="clear"),
     ])
-    async def flag_cmd(self, interaction: discord.Interaction, action: str, user: discord.Member):
+    async def flag_cmd(self, interaction: discord.Interaction, action: str, user: discord.Member, flag_id: Optional[int] = None):
         """Flag management for server members."""
         if not await self.is_authorized(interaction):
             await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
@@ -339,6 +344,35 @@ class ShadyFlags(commands.Cog):
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        elif action == "remove":
+            if flag_id is None:
+                await interaction.response.send_message(
+                    "You must provide a `flag_id` to remove. Use `/flag view` to see flag IDs.",
+                    ephemeral=True
+                )
+                return
+
+            removed = await self.remove_flag(interaction.guild.id, flag_id)
+            if not removed:
+                await interaction.response.send_message(
+                    f"Flag #{flag_id} not found. Use `/flag view` to see active flags.",
+                    ephemeral=True
+                )
+                return
+
+            await interaction.response.send_message(
+                f"✅ Removed flag #{flag_id} from {user.mention}\n**Reason was:** {removed['reason']}",
+                ephemeral=True
+            )
+
+            await self.log_to_mod_channel(
+                interaction.guild,
+                f"🗑️ **Flag Removed** by {interaction.user.mention}\n"
+                f"**User:** {user.mention}\n"
+                f"**Flag ID:** {flag_id}\n"
+                f"**Reason was:** {removed['reason']}"
+            )
+
         elif action == "clear":
             flags = await self.get_flags(interaction.guild.id, user.id)
             if not flags:
@@ -355,13 +389,18 @@ class ShadyFlags(commands.Cog):
             )
 
     @app_commands.command(name="flagid", description="Manage flags by user ID (for users not in server)")
-    @app_commands.describe(action="Action to perform", user_id="Discord User ID")
+    @app_commands.describe(
+        action="Action to perform",
+        user_id="Discord User ID",
+        flag_id="Flag ID number (required for Remove Flag)"
+    )
     @app_commands.choices(action=[
         app_commands.Choice(name="Add Flag", value="add"),
         app_commands.Choice(name="View Flags", value="view"),
+        app_commands.Choice(name="Remove Flag", value="remove"),
         app_commands.Choice(name="Clear All Flags", value="clear"),
     ])
-    async def flagid_cmd(self, interaction: discord.Interaction, action: str, user_id: str):
+    async def flagid_cmd(self, interaction: discord.Interaction, action: str, user_id: str, flag_id: Optional[int] = None):
         """Flag management by user ID."""
         if not await self.is_authorized(interaction):
             await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
@@ -411,6 +450,35 @@ class ShadyFlags(commands.Cog):
                 embed.add_field(name=f"{priority_emoji} Flag #{flag['id']}", value=value, inline=False)
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        elif action == "remove":
+            if flag_id is None:
+                await interaction.response.send_message(
+                    "You must provide a `flag_id` to remove. Use `/flagid view` to see flag IDs.",
+                    ephemeral=True
+                )
+                return
+
+            removed = await self.remove_flag(interaction.guild.id, flag_id)
+            if not removed:
+                await interaction.response.send_message(
+                    f"Flag #{flag_id} not found. Use `/flagid view` to see active flags.",
+                    ephemeral=True
+                )
+                return
+
+            await interaction.response.send_message(
+                f"✅ Removed flag #{flag_id} from {user_display}\n**Reason was:** {removed['reason']}",
+                ephemeral=True
+            )
+
+            await self.log_to_mod_channel(
+                interaction.guild,
+                f"🗑️ **Flag Removed** by {interaction.user.mention}\n"
+                f"**User:** <@{uid}> ({uid})\n"
+                f"**Flag ID:** {flag_id}\n"
+                f"**Reason was:** {removed['reason']}"
+            )
 
         elif action == "clear":
             flags = await self.get_flags(interaction.guild.id, uid)

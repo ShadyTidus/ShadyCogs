@@ -1,0 +1,14 @@
+{
+    "author": ["ShadyTidus"],
+    "install_msg": "Thanks for installing ShadyTime!\n\nUse `/zedtime` to check the current in-game day, time, and blood moon countdown on the PA 7DTD server.",
+    "name": "ShadyTime",
+    "short": "7 Days to Die server time and blood moon countdown",
+    "description": "Queries the Parental Advisory 7 Days to Die server via Steam A2S protocol and reports the current in-game day, hour, minute, player count, and days until the next blood moon. Anyone can use it, with a 1-hour per-user rate limit. Results post to the configured channel.",
+    "end_user_data_statement": "This cog temporarily stores the timestamp of the last command use per user for rate limiting. This data is held in memory only and is not persisted to disk.",
+    "tags": ["7dtd", "gaming", "server", "query", "blood-moon"],
+    "requirements": [],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
